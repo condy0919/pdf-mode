@@ -4,6 +4,7 @@
 #ifndef YAPDF_BRIDGE_HPP_
 #define YAPDF_BRIDGE_HPP_
 
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -33,20 +34,18 @@ public:
             Unknown,
         };
 
-        /// Return the type of a Lisp symbol. It corresponds exactly to the
-        /// `type-of` Lisp function.
-        Type typeOf() {
-            const Value t(emacs_,
-                          YAPDF_EMACS_APPLY(emacs_->env_, type_of, value_));
-            if (t == emacs_->intern("integer")) {
+        /// Return the type of a Lisp symbol. It corresponds exactly to the `type-of` Lisp function.
+        [[nodiscard]] Type typeOf() const {
+            const Value type(emacs_, YAPDF_EMACS_APPLY(emacs_->env_, type_of, value_));
+            if (type == emacs_->intern("integer")) {
                 return Type::Integer;
-            } else if (t == emacs_->intern("symbol")) {
+            } else if (type == emacs_->intern("symbol")) {
                 return Type::Symbol;
-            } else if (t == emacs_->intern("string")) {
+            } else if (type == emacs_->intern("string")) {
                 return Type::String;
-            } else if (t == emacs_->intern("cons")) {
+            } else if (type == emacs_->intern("cons")) {
                 return Type::Cons;
-            } else if (t == emacs_->intern("float")) {
+            } else if (type == emacs_->intern("float")) {
                 return Type::Float;
             }
             return Type::Unknown;
@@ -54,21 +53,42 @@ public:
 
         /// Return the integral value stored in the Emacs integer object.
         ///
-        /// If it doesn't represent an integer object, Emacs will signal an
-        /// error of type `wrong-type-argument`. If the integer represented by
-        /// `Value` can't be represented as `std::intmax_t`, Emacs will signal
-        /// an error of type `overflow-error`.
-        std::intmax_t asInteger() {
+        /// If it doesn't represent an integer object, Emacs will signal an error of type
+        /// `wrong-type-argument`. If the integer represented by `Value` can't be represented as
+        /// `std::intmax_t`, Emacs will signal an error of type `overflow-error`.
+        [[nodiscard]] std::intmax_t asInteger() const {
             return YAPDF_EMACS_APPLY(emacs_->env_, extract_integer, value_);
         }
 
         /// Return the value stored in the Emacs floating-point number.
         ///
-        /// If it doesn't represent a floating-point object, Emacs will signal
-        /// an error of type `wrong-type-argument`.
-        double asFloat() {
+        /// If it doesn't represent a floating-point object, Emacs will signal an error of type
+        /// `wrong-type-argument`.
+        [[nodiscard]] double asFloat() const {
             return YAPDF_EMACS_APPLY(emacs_->env_, extract_float, value_);
         }
+
+#if EMACS_MAJOR_VERSION >= 27
+        //   bool (*extract_big_integer) (emacs_env *env, emacs_value arg, int
+        //   *sign,
+        //                                ptrdiff_t *count, emacs_limb_t
+        //                                *magnitude)
+        //     EMACS_ATTRIBUTE_NONNULL (1);
+
+        /// Return the value stored in the Emacs timestamp with nanoseconds precision.
+        ///
+        /// If you need to deal with time values that not representable by `struct timespec`, or if
+        /// you want higher precision, call the Lisp function `encode-time` and work with its return
+        /// value.
+        ///
+        /// \since Emacs 27
+        [[nodiscard]] std::chrono::nanoseconds asTime() const {
+            const struct timespec ts = YAPDF_EMACS_APPLY(emacs_->env_, extract_time, value_);
+            return std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::seconds(ts.tv_sec) + std::chrono::nanoseconds(ts.tv_nsec));
+        }
+
+#endif
 
         void copy_string_contents();
 
@@ -84,30 +104,41 @@ public:
         void vec_size();
 
         /// Get the native implementation `emacs_value`
-        emacs_value native() {
+        [[nodiscard]] emacs_value native() const {
             return value_;
         }
 
         /// Check whether the Lisp object is not `nil`.
         ///
-        /// It never exists non-locally. There can be multiple different values
-        /// that represent `nil`.
-        operator bool() {
+        /// It never exists non-locally. There can be multiple different values that represent
+        /// `nil`.
+        ///
+        /// # Example
+        ///
+        /// ``` cpp
+        ///
+        /// ```
+        ///
+        /// # Note
+        ///
+        /// You could implement an equivalent test by using `intern` to get an `emacs_value`
+        /// represent `nil`, then Note that you could implement an equivalent test by using ‘intern’
+        /// to get an ‘emacs_value’ representing ‘nil’, then use ‘eq’, described above, to test for
+        /// equality. But using this function is more convenient.
+        operator bool() const {
             return YAPDF_EMACS_APPLY(emacs_->env_, is_not_nil, value_);
         }
 
         /// Check whether `*this` and `rhs` represent the same Lisp object.
         ///
-        /// It never exists non-locally. `operator==` corresponds to the Lisp
-        /// `eq` function. For other kinds of equality comparisons, such as
-        /// `eql`, `equal`, use `intern` and `funcall` to call the corresponding
-        /// Lisp function.
+        /// It never exists non-locally. `operator==` corresponds to the Lisp `eq` function. For
+        /// other kinds of equality comparisons, such as `eql`, `equal`, use `intern` and `funcall`
+        /// to call the corresponding Lisp function.
         ///
         /// # Note
         ///
-        /// Two `Value` objects that are different in the C sense might still
-        /// represent the same Lisp object, so you must always call `operator==`
-        /// to check for equality.
+        /// Two `Value` objects that are different in the C sense might still represent the same
+        /// Lisp object, so you must always call `operator==` to check for equality.
         bool operator==(const Value& rhs) const {
             return YAPDF_EMACS_APPLY(emacs_->env_, eq, value_, rhs.value_);
         }
@@ -141,6 +172,8 @@ public:
         Quit = 1,
     };
 
+    Emacs(emacs_env* env) : env_(env) {}
+
     // memory management
     Value makeGlobalRef(Value value);
     void freeGlobalRef(Value value);
@@ -154,8 +187,8 @@ public:
 
     /// Create an Emacs integer object from a C integer value.
     ///
-    /// If the value can't be represented as an Emacs integer, Emacs will signal
-    /// an error of type `overflow-error`.
+    /// If the value can't be represented as an Emacs integer, Emacs will signal an error of type
+    /// `overflow-error`.
     Value makeInteger(std::intmax_t v) {
         return Value(this, YAPDF_EMACS_APPLY(env_, make_integer, v));
     }
@@ -167,29 +200,25 @@ public:
 
     /// Create a multibyte Lisp string object.
     ///
-    /// If `len` is larger than the maximum allowed Emacs string length, Emacs
-    /// will raise an `overflow-error` signal. Otherwise, Emacs treats the
-    /// memory at `s` as the UTF-8 representation of a string.
+    /// If `len` is larger than the maximum allowed Emacs string length, Emacs will raise an
+    /// `overflow-error` signal. Otherwise, Emacs treats the memory at `s` as the UTF-8
+    /// representation of a string.
     ///
-    /// If the memory block delimited by `s` and `len` contains a valid UTF-8
-    /// string, the result value will be a multibyte Lisp string that contains
-    /// the same sequence of Unicode scalar values as represented by `s`.
-    /// Otherwise, the return value will be a multibyte Lisp string with
-    /// unspecified contents; in practice, Emacs will attempt to detect as many
-    /// valid UTF-8 subsequence in `s` as possible and treat the rest as
-    /// undecodable bytes, but you shouldn't rely on any specific behavior in
-    /// this case.
+    /// If the memory block delimited by `s` and `len` contains a valid UTF-8 string, the result
+    /// value will be a multibyte Lisp string that contains the same sequence of Unicode scalar
+    /// values as represented by `s`. Otherwise, the return value will be a multibyte Lisp string
+    /// with unspecified contents; in practice, Emacs will attempt to detect as many valid UTF-8
+    /// subsequence in `s` as possible and treat the rest as undecodable bytes, but you shouldn't
+    /// rely on any specific behavior in this case.
     ///
-    /// The returned Lisp string will not contain any text properties. To create
-    /// a string containing text properties, use `funcall` to call functions
-    /// such as `propertize`.
+    /// The returned Lisp string will not contain any text properties. To create a string containing
+    /// text properties, use `funcall` to call functions such as `propertize`.
     ///
-    /// `makeString` can't create strings that contains characters that are not
-    /// valid Unicode scalar values. Such strings are rare, but occur from time
-    /// to time; examples are strings with UTF-16 surrogate code points or
-    /// strings with extended Emacs characters that don't correspond to Unicode
-    /// code points. To create such a Lisp string, call e.g. the function
-    /// `string` and pass the desired character values as integers.
+    /// `makeString` can't create strings that contains characters that are not valid Unicode scalar
+    /// values. Such strings are rare, but occur from time to time; examples are strings with UTF-16
+    /// surrogate code points or strings with extended Emacs characters that don't correspond to
+    /// Unicode code points. To create such a Lisp string, call e.g. the function `string` and pass
+    /// the desired character values as integers.
     ///
     /// # Note
     ///
@@ -206,8 +235,13 @@ public:
         return makeString(s.c_str(), s.size());
     }
 
+    // TODO
+    Value makeFunction() {
+        return Value(this,
+                     YAPDF_EMACS_APPLY(env_, make_function, 0, 0, nullptr, "docstring", nullptr));
+    }
+
     // function register
-    void make_function();
     void funcall();
 
     /// Return the canonical symbol whose name is `s`.
@@ -226,18 +260,28 @@ public:
 #endif
 
 #if EMACS_MAJOR_VERSION >= 27
-// enum emacs_process_input_result (*process_input) (emacs_env *env)
-//     EMACS_ATTRIBUTE_NONNULL (1);
+    // enum emacs_process_input_result (*process_input) (emacs_env *env)
+    //     EMACS_ATTRIBUTE_NONNULL (1);
 
-//   struct timespec (*extract_time) (emacs_env *env, emacs_value arg)
-//     EMACS_ATTRIBUTE_NONNULL (1);
+    //   struct timespec (*extract_time) (emacs_env *env, emacs_value arg)
+    //     EMACS_ATTRIBUTE_NONNULL (1);
 
-//   emacs_value (*make_time) (emacs_env *env, struct timespec time)
-//     EMACS_ATTRIBUTE_NONNULL (1);
+    /// Create a
+    ///
+    /// \since Emacs 27
+    Value makeTime(std::chrono::seconds secs, std::chrono::nanoseconds ns) {
+        const struct timespec ts = {
+            .tv_sec = secs.count(),
+            .tv_nsec = ns.count(),
+        };
+        return Value(this, YAPDF_EMACS_APPLY(env_, make_time, ts));
+    }
 
-//   bool (*extract_big_integer) (emacs_env *env, emacs_value arg, int *sign,
-//                                ptrdiff_t *count, emacs_limb_t *magnitude)
-//     EMACS_ATTRIBUTE_NONNULL (1);
+    Value makeTime(std::chrono::nanoseconds ns) {
+        const auto secs = std::chrono::duration_cast<std::chrono::seconds>(ns);
+        ns -= secs;
+        return makeTime(secs, ns);
+    }
 
 //   emacs_value (*make_big_integer) (emacs_env *env, int sign, ptrdiff_t count,
 //                                    const emacs_limb_t *magnitude)
@@ -256,6 +300,8 @@ public:
 
     //   int (*open_channel) (emacs_env *env, emacs_value pipe_process)
     //     EMACS_ATTRIBUTE_NONNULL (1);
+
+    void makeInteractive(Value f, const char* spec) {}
 
     //   void (*make_interactive) (emacs_env *env, emacs_value function,
     //                             emacs_value spec)

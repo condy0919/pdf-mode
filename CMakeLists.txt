@@ -19,7 +19,7 @@ OPTION(YAPDF_ENABLE_BENCHMARKS "Enable benchmarks" OFF)
 add_library(yapdf SHARED "")
 
 # Alias to avoid name conflicts
-# add_library(ANameWithDoubleColons ALIAS yapdf)
+add_library(yapdf::yapdf ALIAS yapdf)
 
 ### Commpile options
 # Enable C++17 (Required)

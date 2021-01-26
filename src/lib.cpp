@@ -1,33 +1,54 @@
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <emacs-module.h>
 
-// `plugin_is_GPL_compatible' indicates that it's released under the GPL or
-// compatible license.
+// It indicates that it's released under the GPL or compatible license.
 int plugin_is_GPL_compatible;
 
-int emacs_module_init(struct emacs_runtime* ert) {
-    emacs_env* env = ert->get_environment(ert);
+// Emacs will call this function when it loads a dynamic module.
+//
+// If a module does not export a function named `emacs_module_init`, trying to
+// load the module will signal an error. The initialization function should
+// return zero if the initialization succeeds, non-zero otherwise. In the latter
+// case, Emacs will signal an error, and the loading of the module will fail.
+//
+// If the user presses <kbd>C-g</kbd> during the initialization, Emacs ignores
+// the return value of this initialization function and quits. If needed, you
+// can catch user quitting inside the initialization function.
+int emacs_module_init(struct emacs_runtime* runtime) {
+    emacs_env* env = runtime->get_environment(runtime);
 
-    // register a simple function
-    // create the Emacs-side function wrapper object
-    emacs_value fn = env->make_function(
-        env, 1, 1,
-        [](emacs_env* env, std::ptrdiff_t, emacs_value args[], void*)
-            EMACS_NOEXCEPT {
-                const long result = env->extract_integer(env, args[0]) * 2;
-                return env->make_integer(env, result);
-            },
-        "An example function that doubles its argument", nullptr);
+    // Compatibility verification
+    if (static_cast<std::size_t>(runtime->size) < sizeof(*runtime)) {
+        return 1;
+    }
 
-    emacs_value args[] = {env->make_integer(env, 3)};
-    emacs_value retval = env->funcall(env, fn, 1, args);
-    assert(env->extract_integer(env, retval) == 6);
+    if (static_cast<std::size_t>(env->size) < sizeof(*env)) {
+        return 2;
+    }
 
-    emacs_value fname = env->intern(env, "yapdf-unary-int-fn");
-    emacs_value fset = env->intern(env, "fset");
-    emacs_value args2[] = {fname, fn};
-    env->funcall(env, fset, 2, args2);
+    // emacs_env* env = ert->get_environment(ert);
+
+    // // register a simple function
+    // // create the Emacs-side function wrapper object
+    // emacs_value fn = env->make_function(
+    //     env, 1, 1,
+    //     [](emacs_env* env, std::ptrdiff_t, emacs_value args[], void*)
+    //         EMACS_NOEXCEPT {
+    //             const long result = env->extract_integer(env, args[0]) * 2;
+    //             return env->make_integer(env, result);
+    //         },
+    //     "An example function that doubles its argument", nullptr);
+
+    // emacs_value args[] = {env->make_integer(env, 3)};
+    // emacs_value retval = env->funcall(env, fn, 1, args);
+    // assert(env->extract_integer(env, retval) == 6);
+
+    // emacs_value fname = env->intern(env, "yapdf-unary-int-fn");
+    // emacs_value fset = env->intern(env, "fset");
+    // emacs_value args2[] = {fname, fn};
+    // env->funcall(env, fset, 2, args2);
 
     return 0;
 }
