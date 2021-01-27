@@ -6,14 +6,12 @@
 emacs_env* env;
 int plugin_is_GPL_compatible;
 
-int emacs_module_init(struct emacs_runtime* runtime) {
+int emacs_module_init(struct emacs_runtime* runtime) EMACS_NOEXCEPT {
     doctest::Context ctx;
 
     // leak the emacs_env pointer
     env = runtime->get_environment(runtime);
-
-    std::exit(ctx.run());
-    return 0;
+    return ctx.run();
 }
 
 TEST_CASE("Conversion Between Lisp and Module Values") {
