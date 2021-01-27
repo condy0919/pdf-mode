@@ -10,5 +10,5 @@ target_link_libraries(bridge_tests LINK_PRIVATE
   yapdf::yapdf
 )
 add_test(NAME BridgeTests
-  COMMAND emacs -Q -l libbridge_tests.so --module-assertions -f "kill-emacs"
+  COMMAND emacs -Q --batch -l $<TARGET_FILE:bridge_tests>
 )
