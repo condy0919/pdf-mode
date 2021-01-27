@@ -4,17 +4,11 @@ on: [push, pull_request]
 
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest]
-        emacs_version:
-          - 27.1
-          - snapshot
+    runs-on: ubuntu-20.04
+    container: archlinuxrolling/gcc:latest
     steps:
-    - uses: purcell/setup-emacs@master
-      with:
-        version: ${{ matrix.emacs_version }}
+    - name: Install Emacs & Other stuff
+      run: pacman -Sy emacs git tar cmake make --noconfirm
 
     - uses: actions/checkout@v2
 
@@ -22,5 +16,5 @@ jobs:
       run: cmake -S. -Bbuild && cmake --build build
 
     - name: Test
-      run: cd build && ctest
+      run: cd build && ctest --output-on-failure
             
