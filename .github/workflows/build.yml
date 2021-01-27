@@ -21,9 +21,5 @@ jobs:
     - name: Build
       run: cmake -S. -Bbuild -DCMAKE_CXX_FLAGS="-I/nix/var/nix/profiles/per-user/$USER/profile/include" && cmake --build build
 
-    - name: Test
-      run: |
-        export LD_LIBRARY_PATH=$(nix eval --raw nixpkgs.stdenv.cc.cc.lib)/
-        ls $LD_LIBRARY_PATH/
-        cd build && ctest --output-on-failure
-            
+    - name: Setup tmate session
+      uses: mxschmitt/action-tmate@v3
