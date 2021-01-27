@@ -12,8 +12,8 @@ project(yapdf
   HOMEPAGE_URL ""
 )
 
-OPTION(YAPDF_ENABLE_TESTS "Enable tests" ON)
-OPTION(YAPDF_ENABLE_BENCHMARKS "Enable benchmarks" OFF)
+option(YAPDF_ENABLE_TESTS "Enable tests" ON)
+option(YAPDF_ENABLE_BENCHMARKS "Enable benchmarks" OFF)
 
 # Sources for the library are specified at the end
 add_library(yapdf SHARED "")
