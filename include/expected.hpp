@@ -313,7 +313,7 @@ void swap(Unexpected<E>& lhs, Unexpected<E>& rhs) noexcept(noexcept(lhs.swap(rhs
 struct UnexpectType {
     constexpr UnexpectType() noexcept = default;
 };
-static constexpr UnexpectType unexpect{};
+inline constexpr UnexpectType unexpect{};
 
 /// `Expected<T, E>` is a template class that represents either `T` or `E`.
 ///
@@ -366,32 +366,9 @@ public:
 
     /// \{
     ///
+    /// Construct `Expected` with a `T`.
     ///
-    template <typename U, typename G, YAPDF_REQUIRES(std::is_constructible_v<T, U> && std::is_constructible_v<E, G>)>
-    explicit Expected(const Expected<U, G>& rhs) noexcept(
-        // TODO indentation
-        std::is_nothrow_constructible_v<T, U>&& std::is_nothrow_constructible_v<E, G>) {
-        switch (rhs.ex_.index()) {
-        case 0:
-            ex_.template emplace<0>(std::get<0>(rhs.ex_));
-            break;
-
-        case 1:
-            ex_.template emplace<1>(std::get<1>(rhs.ex_));
-            break;
-
-        default:
-            __builtin_unreachable();
-        }
-    }
-
-    template <typename U, typename G>
-    explicit Expected(Expected<U, G>&&) {}
-    /// \}
-
-    /// \{
-    ///
-    ///
+    /// Implicit construction is enabled for intuition.
     /* implicit */ Expected(const T& rhs) noexcept(std::is_nothrow_copy_constructible_v<T>)
         : ex_(std::in_place_index_t<0>{}, rhs) {}
     /* implicit */ Expected(T&& rhs) noexcept(std::is_nothrow_move_constructible_v<T>)
@@ -400,7 +377,9 @@ public:
 
     /// \{
     ///
+    /// Construct `Expected` with an `E`.
     ///
+    /// implicit construction is enabled for intuition.
     /* implicit */ Expected(const Unexpected<E>& rhs) noexcept(std::is_nothrow_copy_constructible_v<E>)
         : ex_(std::in_place_index_t<1>{}, rhs.error()) {}
     /* implicit */ Expected(Unexpected<E>&& rhs) noexcept(std::is_nothrow_move_constructible_v<E>)
@@ -415,11 +394,31 @@ public:
     explicit Expected(Expected&&) noexcept(
         std::is_nothrow_move_constructible_v<T> && std::is_nothrow_move_constructible_v<E>) = default;
 
-    Expected& operator=(const T&);
-    Expected& operator=(T&&);
+    /// \{
+    ///
+    /// Assign a `T` to `Expected`
+    Expected& operator=(const T& rhs) noexcept(std::is_nothrow_constructible_v<T>) {
+        ex_.template emplace<0>(rhs);
+        return *this;
+    }
+    Expected& operator=(T&& rhs) noexcept(std::is_nothrow_move_constructible_v<T>) {
+        ex_.template emplace<0>(std::move(rhs));
+        return *this;
+    }
+    /// \}
 
-    Expected& operator=(const Unexpected<E>&);
-    Expected& operator=(Unexpected<E>&&);
+    /// \{
+    ///
+    /// Assign an `Unexpected` to `Expected`
+    Expected& operator=(const Unexpected<E>& rhs) noexcept(std::is_nothrow_constructible_v<E>) {
+        ex_.template emplace<1>(rhs.error());
+        return *this;
+    }
+    Expected& operator=(Unexpected<E>&& rhs) noexcept(std::is_nothrow_move_constructible_v<E>) {
+        ex_.template emplace<1>(std::move(rhs.error()));
+        return *this;
+    }
+    /// \}
 
     /// The default copy assignment operator
     Expected& operator=(const Expected&) noexcept(
@@ -429,7 +428,7 @@ public:
     Expected& operator=(Expected&&) noexcept(
         std::is_nothrow_move_assignable_v<T> && std::is_nothrow_move_assignable_v<E>) = default;
 
-    /// Inplacement constructs from args
+    /// Construct from args in place
     ///
     /// ``` cpp
     /// Expected<std::string, int> x(unexpect, 2);
@@ -474,6 +473,205 @@ public:
     bool containsErr(const E& x) const noexcept {
         return hasError() && std::get<1>(ex_) == x;
     }
+
+    /// \{
+    ///
+    /// Map an `Expected<T, E>` to `Expected<U, E>` by applying a function to the contained `T`, leaving an `E`
+    /// untouched.
+    ///
+    /// This function can be used to compose the results of two functions.
+    ///
+    /// ``` cpp
+    /// const auto result = atoi("123").map([](int x) { return x + 1; });
+    /// assert(result.hasValue() && result.value() == 124);
+    /// ```
+    template <typename F, typename U = std::invoke_result_t<F, T>>
+    Expected<U, E> map(F&& f) & {
+        if (YAPDF_LIKELY(hasValue())) {
+            return std::invoke(std::forward<F>(f), value());
+        }
+        return Unexpected(error());
+    }
+
+    template <typename F, typename U = std::invoke_result_t<F, T>>
+    Expected<U, E> map(F&& f) const& {
+        if (YAPDF_LIKELY(hasValue())) {
+            return std::invoke(std::forward<F>(f), value());
+        }
+        return Unexpected(error());
+    }
+
+    template <typename F, typename U = std::invoke_result_t<F, T>>
+    Expected<U, E> map(F&& f) && {
+        if (YAPDF_LIKELY(hasValue())) {
+            return std::invoke(std::forward<F>(f), std::move(value()));
+        }
+        return Unexpected(std::move(error()));
+    }
+
+    template <typename F, typename U = std::invoke_result_t<F, T>>
+    Expected<U, E> map(F&& f) const&& {
+        if (YAPDF_LIKELY(hasValue())) {
+            return std::invoke(std::forward<F>(f), std::move(value()));
+        }
+        return Unexpected(std::move(error()));
+    }
+    /// \}
+
+    /// \{
+    ///
+    /// Map an `Expected<T, E>` to `Expected<T, U>` by applying a function to the contained `E`, leaving the `T`
+    /// untouched.
+    ///
+    /// This function can be used to compose the results of two functions.
+    ///
+    /// ``` cpp
+    /// string stringify(int x) {
+    ///     char buf[32] = "";
+    ///     auto len = snprintf(buf, sizeof(buf), "%d", x);
+    ///     return string(buf, len);
+    /// }
+    ///
+    /// Expected<int, int> e1 = 2;
+    /// const auto result1 = e1.mapErr(stringify);
+    /// assert(result1.hasValue() && result1.value() == 2);
+    ///
+    /// Expected<int, int> e2 = Unexpected(2);
+    /// const auto result2 = e2.mapErr(stringify);
+    /// assert(result2.hasError() && result2.error() == "2");
+    /// ```
+    template <typename F, typename U = std::invoke_result_t<F, E>>
+    Expected<T, U> mapErr(F&& f) & {
+        if (YAPDF_LIKELY(hasError())) {
+            return Unexpected(std::invoke(std::forward<F>(f), error()));
+        }
+        return value();
+    }
+
+    template <typename F, typename U = std::invoke_result_t<F, E>>
+    Expected<T, U> mapErr(F&& f) const& {
+        if (YAPDF_LIKELY(hasError())) {
+            return Unexpected(std::invoke(std::forward<F>(f), error()));
+        }
+        return value();
+    }
+
+    template <typename F, typename U = std::invoke_result_t<F, E>>
+    Expected<T, U> mapErr(F&& f) && {
+        if (YAPDF_LIKELY(hasError())) {
+            return Unexpected(std::invoke(std::forward<F>(f), std::move(error())));
+        }
+        return std::move(value());
+    }
+
+    template <typename F, typename U = std::invoke_result_t<F, E>>
+    Expected<T, U> mapErr(F&& f) const&& {
+        if (YAPDF_LIKELY(hasError())) {
+            return Unexpected(std::invoke(std::forward<F>(f), std::move(error())));
+        }
+        return std::move(value());
+    }
+    /// \}
+
+    /// \{
+    ///
+    /// Call `f` if the `Expected` holds a `T`, otherwise return the `E`.
+    ///
+    /// This function can be used for control flow based on `Expected`.
+    ///
+    /// ``` cpp
+    /// const Expected<int, int> e1 = 2;
+    /// assert(e1.andThen([](int x) -> Expected<int, int> { return x * x; }).value(), 4);
+    ///
+    /// const Expected<int, int> e2 = Unexpected(3);
+    /// assert(e2.andThen([](int x) -> Expected<int, int> { return x + 1; }).error(), 3);
+    /// ```
+    template <typename F, typename R = std::invoke_result_t<F, T>, typename U = typename R::ValueType,
+              YAPDF_REQUIRES(std::is_same_v<R, Expected<U, E>>)>
+    Expected<U, E> andThen(F&& f) & {
+        if (YAPDF_LIKELY(hasValue())) {
+            return std::invoke(std::forward<F>(f), value());
+        }
+        return Unexpected(error());
+    }
+
+    template <typename F, typename R = std::invoke_result_t<F, T>, typename U = typename R::ValueType,
+              YAPDF_REQUIRES(std::is_same_v<R, Expected<U, E>>)>
+    Expected<U, E> andThen(F&& f) const& {
+        if (YAPDF_LIKELY(hasValue())) {
+            return std::invoke(std::forward<F>(f), value());
+        }
+        return Unexpected(error());
+    }
+
+    template <typename F, typename R = std::invoke_result_t<F, T>, typename U = typename R::ValueType,
+              YAPDF_REQUIRES(std::is_same_v<R, Expected<U, E>>)>
+    Expected<U, E> andThen(F&& f) && {
+        if (YAPDF_LIKELY(hasValue())) {
+            return std::invoke(std::forward<F>(f), std::move(value()));
+        }
+        return Unexpected(std::move(error()));
+    }
+
+    template <typename F, typename R = std::invoke_result_t<F, T>, typename U = typename R::ValueType,
+              YAPDF_REQUIRES(std::is_same_v<R, Expected<U, E>>)>
+    Expected<U, E> andThen(F&& f) const&& {
+        if (YAPDF_LIKELY(hasValue())) {
+            return std::invoke(std::forward<F>(f), std::move(value()));
+        }
+        return Unexpected(std::move(error()));
+    }
+    /// \}
+
+    /// \{
+    ///
+    /// Call `f` if the `Expected` holds an `E`, otherwise return the `T`.
+    ///
+    /// This function can be used for control flow based on `Expected`.
+    ///
+    /// ``` cpp
+    /// const Expected<int, int> e1 = 2;
+    /// assert(e1.orElse([](int x) -> Expected<int, int> { return x * x; }).value(), 4);
+    ///
+    /// const Expected<int, int> e2 = Unexpected(3);
+    /// assert(e2.orElse([](int x) -> Expected<int, int> { return x + 1; }).error(), 4);
+    /// ```
+    template <typename F, typename R = std::invoke_result_t<F, E>, typename U = typename R::ErrorType,
+              YAPDF_REQUIRES(std::is_same_v<R, Expected<T, U>>)>
+    Expected<T, U> orElse(F&& f) & {
+        if (YAPDF_LIKELY(hasError())) {
+            return std::invoke(std::forward<F>(f), error());
+        }
+        return value();
+    }
+
+    template <typename F, typename R = std::invoke_result_t<F, E>, typename U = typename R::ErrorType,
+              YAPDF_REQUIRES(std::is_same_v<R, Expected<T, U>>)>
+    Expected<T, U> orElse(F&& f) const& {
+        if (YAPDF_LIKELY(hasError())) {
+            return std::invoke(std::forward<F>(f), error());
+        }
+        return value();
+    }
+
+    template <typename F, typename R = std::invoke_result_t<F, E>, typename U = typename R::ErrorType,
+              YAPDF_REQUIRES(std::is_same_v<R, Expected<T, U>>)>
+    Expected<T, U> orElse(F&& f) && {
+        if (YAPDF_LIKELY(hasError())) {
+            return std::invoke(std::forward<F>(f), std::move(error()));
+        }
+        return std::move(value());
+    }
+
+    template <typename F, typename R = std::invoke_result_t<F, E>, typename U = typename R::ErrorType,
+              YAPDF_REQUIRES(std::is_same_v<R, Expected<T, U>>)>
+    Expected<T, U> orElse(F&& f) const&& {
+        if (YAPDF_LIKELY(hasError())) {
+            return std::invoke(std::forward<F>(f), std::move(error()));
+        }
+        return std::move(value());
+    }
+    /// \}
 
     /// \{
     ///
@@ -548,18 +746,32 @@ public:
     /// Unwrap an `Expected`, yielding the content of a `T`
     ///
     /// Throw `BadExpectedAccess` with description when it's failed
+    T& expect(const char* s) & {
+        if (YAPDF_UNLIKELY(hasError())) {
+            throw BadExpectedAccess(s);
+        }
+        return value();
+    }
+
     const T& expect(const char* s) const& {
         if (YAPDF_UNLIKELY(hasError())) {
             throw BadExpectedAccess(s);
         }
-        return std::get<0>(ex_);
+        return value();
     }
 
     T&& expect(const char* s) && {
         if (YAPDF_UNLIKELY(hasError())) {
             throw BadExpectedAccess(s);
         }
-        return std::move(std::get<0>(ex_));
+        return std::move(value());
+    }
+
+    const T&& expect(const char* s) const&& {
+        if (YAPDF_UNLIKELY(hasError())) {
+            throw BadExpectedAccess(s);
+        }
+        return std::move(value());
     }
     /// \}
 
@@ -568,18 +780,32 @@ public:
     /// Unwrap an `Expected`, yielding the content of an `E`
     ///
     /// Throw `BadExpectedAccess` with description when it's successful
+    E& expectErr(const char* s) & {
+        if (YAPDF_UNLIKELY(hasValue())) {
+            throw BadExpectedAccess(s);
+        }
+        return error();
+    }
+
     const E& expectErr(const char* s) const& {
         if (YAPDF_UNLIKELY(hasValue())) {
             throw BadExpectedAccess(s);
         }
-        return std::get<1>(ex_);
+        return error();
     }
 
     E&& expectErr(const char* s) && {
         if (YAPDF_UNLIKELY(hasValue())) {
             throw BadExpectedAccess(s);
         }
-        return std::move(std::get<1>(ex_));
+        return std::move(error());
+    }
+
+    const E&& expectErr(const char* s) const&& {
+        if (YAPDF_UNLIKELY(hasValue())) {
+            throw BadExpectedAccess(s);
+        }
+        return std::move(error());
     }
     /// \}
 
@@ -598,13 +824,23 @@ public:
     /// assert(x.valueOr(3) == 3);
     /// ```
     template <typename U, YAPDF_REQUIRES(std::is_constructible_v<T, U&&>)>
+    T valueOr(U&& deft) & {
+        return hasValue() ? value() : static_cast<T>(std::forward<U>(deft));
+    }
+
+    template <typename U, YAPDF_REQUIRES(std::is_constructible_v<T, U&&>)>
     T valueOr(U&& deft) const& {
-        return hasValue() ? std::get<0>(ex_) : static_cast<T>(std::forward<U>(deft));
+        return hasValue() ? value() : static_cast<T>(std::forward<U>(deft));
     }
 
     template <typename U, YAPDF_REQUIRES(std::is_constructible_v<T, U&&>)>
     T valueOr(U&& deft) && {
-        return hasValue() ? std::move(std::get<0>(ex_)) : static_cast<T>(std::forward<U>(deft));
+        return hasValue() ? std::move(value()) : static_cast<T>(std::forward<U>(deft));
+    }
+
+    template <typename U, YAPDF_REQUIRES(std::is_constructible_v<T, U&&>)>
+    T valueOr(U&& deft) const&& {
+        return hasValue() ? std::move(value()) : static_cast<T>(std::forward<U>(deft));
     }
     /// \}
 
@@ -622,13 +858,23 @@ public:
     /// assert(resy == 3);
     /// ```
     template <typename F, YAPDF_REQUIRES(std::is_same_v<std::invoke_result_t<F, E>, T>)>
+    T valueOrElse(F&& f) & {
+        return hasValue() ? value() : std::invoke(std::forward<F>(f), error());
+    }
+
+    template <typename F, YAPDF_REQUIRES(std::is_same_v<std::invoke_result_t<F, E>, T>)>
     T valueOrElse(F&& f) const& {
-        return hasValue() ? std::get<0>(ex_) : std::forward<F>(f)(std::get<1>(ex_));
+        return hasValue() ? value() : std::invoke(std::forward<F>(f), error());
     }
 
     template <typename F, YAPDF_REQUIRES(std::is_same_v<std::invoke_result_t<F, E>, T>)>
     T valueOrElse(F&& f) && {
-        return hasValue() ? std::move(std::get<0>(ex_)) : std::forward<F>(f)(std::move(std::get<1>(ex_)));
+        return hasValue() ? std::move(value()) : std::invoke(std::forward<F>(f), std::move(error()));
+    }
+
+    template <typename F, YAPDF_REQUIRES(std::is_same_v<std::invoke_result_t<F, E>, T>)>
+    T valueOrElse(F&& f) const&& {
+        return hasValue() ? std::move(value()) : std::invoke(std::forward<F>(f), std::move(error()));
     }
     /// \}
 
