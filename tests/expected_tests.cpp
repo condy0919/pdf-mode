@@ -1,10 +1,63 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest/doctest.h>
 
-#include <tuple>
 #include <memory>
+#include <string>
+#include <tuple>
+#include <utility>
 
 #include "expected.hpp"
+
+TEST_CASE("triviality") {
+    using T1 = yapdf::Expected<int, int>;
+    REQUIRE(std::is_trivially_copy_constructible_v<T1>);
+    REQUIRE(std::is_trivially_copy_assignable_v<T1>);
+    REQUIRE(std::is_trivially_move_constructible_v<T1>);
+    REQUIRE(std::is_trivially_move_assignable_v<T1>);
+    REQUIRE(std::is_trivially_destructible_v<T1>);
+
+    struct T {
+        T(const T&) = default;
+        T(T&&) = default;
+        T& operator=(const T&) = default;
+        T& operator=(T&&) = default;
+        ~T() = default;
+    };
+    using T2 = yapdf::Expected<T, int>;
+    REQUIRE(std::is_trivially_copy_constructible_v<T2>);
+    REQUIRE(std::is_trivially_copy_assignable_v<T2>);
+    REQUIRE(std::is_trivially_move_constructible_v<T2>);
+    REQUIRE(std::is_trivially_move_assignable_v<T2>);
+    REQUIRE(std::is_trivially_destructible_v<T2>);
+
+    struct U {
+        U(const U&) {}
+        U(U&&) {}
+        U& operator=(const U&) {
+            return *this;
+        }
+        U& operator=(U&&) {
+            return *this;
+        };
+        ~U() {}
+    };
+    using T3 = yapdf::Expected<U, int>;
+    REQUIRE(!std::is_trivially_copy_constructible_v<T3>);
+    REQUIRE(!std::is_trivially_copy_assignable_v<T3>);
+    REQUIRE(!std::is_trivially_move_constructible_v<T3>);
+    REQUIRE(!std::is_trivially_move_assignable_v<T3>);
+    REQUIRE(!std::is_trivially_destructible_v<T3>);
+
+    using T4 = yapdf::Expected<std::string, int>;
+    REQUIRE(std::is_copy_constructible_v<T4>);
+    REQUIRE(std::is_move_constructible_v<T4>);
+    REQUIRE(std::is_copy_assignable_v<T4>);
+    REQUIRE(std::is_move_assignable_v<T4>);
+    REQUIRE(!std::is_trivially_copy_constructible_v<T4>);
+    REQUIRE(!std::is_trivially_copy_assignable_v<T4>);
+    REQUIRE(!std::is_trivially_move_constructible_v<T4>);
+    REQUIRE(!std::is_trivially_move_assignable_v<T4>);
+}
 
 TEST_CASE("ctors") {
     const yapdf::Expected<int, int> e1 = yapdf::Unexpected(0);
@@ -148,4 +201,148 @@ TEST_CASE("orElse") {
 
     const yapdf::Expected<int, int> e2 = 3;
     REQUIRE_EQ(e2.orElse(square).orElse(square).value(), 3);
+}
+
+TEST_CASE("assign") {
+    yapdf::Expected<int, int> e1 = 42;
+    yapdf::Expected<int, int> e2 = 17;
+    yapdf::Expected<int, int> e3 = 21;
+    yapdf::Expected<int, int> e4 = yapdf::Unexpected(42);
+    yapdf::Expected<int, int> e5 = yapdf::Unexpected(17);
+    yapdf::Expected<int, int> e6 = yapdf::Unexpected(21);
+
+    e1 = e2;
+    REQUIRE(e1.hasValue());
+    REQUIRE_EQ(e1.value(), 17);
+    REQUIRE(e2.hasValue());
+    REQUIRE_EQ(e2.value(), 17);
+
+    e1 = std::move(e2);
+    REQUIRE(e1.hasValue());
+    REQUIRE_EQ(e1.value(), 17);
+    REQUIRE(e2.hasValue());
+    REQUIRE_EQ(e2.value(), 17);
+
+    e1 = 42;
+    REQUIRE(e1.hasValue());
+    REQUIRE_EQ(e1.value(), 42);
+
+    auto unex = yapdf::Unexpected(12);
+    e1 = unex;
+    REQUIRE(e1.hasError());
+    REQUIRE_EQ(e1.error(), 12);
+
+    e1 = yapdf::Unexpected(42);
+    REQUIRE(e1.hasError());
+    REQUIRE_EQ(e1.error(), 42);
+
+    e1 = e3;
+    REQUIRE(e1.hasValue());
+    REQUIRE_EQ(e1.value(), 21);
+
+    e4 = e5;
+    REQUIRE(e4.hasError());
+    REQUIRE_EQ(e4.error(), 17);
+
+    e4 = std::move(e6);
+    REQUIRE(e4.hasError());
+    REQUIRE_EQ(e4.error(), 21);
+
+    e4 = e1;
+    REQUIRE(e4.hasValue());
+    REQUIRE_EQ(e4.value(), 21);
+}
+
+struct NoThrow {
+    NoThrow(std::string i) : i(i) {}
+    std::string i;
+};
+struct CanThrowMove {
+    CanThrowMove(std::string i) : i(i) {}
+    CanThrowMove(CanThrowMove const&) = default;
+    CanThrowMove(CanThrowMove&& other) noexcept(false) : i(other.i) {}
+    CanThrowMove& operator=(CanThrowMove&&) = default;
+    std::string i;
+};
+
+bool should_throw = false;
+struct WillThrowMove {
+    WillThrowMove(std::string i) : i(i) {}
+    WillThrowMove(WillThrowMove const&) = default;
+    WillThrowMove(WillThrowMove&& other) : i(other.i) {
+        if (should_throw)
+            throw 0;
+    }
+    WillThrowMove& operator=(WillThrowMove&&) = default;
+    std::string i;
+};
+
+template <class T1, class T2>
+void swap_test() {
+    std::string s1 = "abcdefghijklmnopqrstuvwxyz";
+    std::string s2 = "zyxwvutsrqponmlkjihgfedcba";
+
+    yapdf::Expected<T1, T2> a{s1};
+    yapdf::Expected<T1, T2> b{s2};
+    swap(a, b);
+    REQUIRE_EQ(a.value().i, s2);
+    REQUIRE_EQ(b.value().i, s1);
+
+    a = s1;
+    b = yapdf::Unexpected<T2>(s2);
+    swap(a, b);
+    REQUIRE_EQ(a.error().i, s2);
+    REQUIRE_EQ(b.value().i, s1);
+
+    a = yapdf::Unexpected<T2>(s1);
+    b = s2;
+    swap(a, b);
+    REQUIRE_EQ(a.value().i, s2);
+    REQUIRE_EQ(b.error().i, s1);
+
+    a = yapdf::Unexpected<T2>(s1);
+    b = yapdf::Unexpected<T2>(s2);
+    swap(a, b);
+    REQUIRE_EQ(a.error().i, s2);
+    REQUIRE_EQ(b.error().i, s1);
+
+    a = s1;
+    b = s2;
+    a.swap(b);
+    REQUIRE_EQ(a.value().i, s2);
+    REQUIRE_EQ(b.value().i, s1);
+
+    a = s1;
+    b = yapdf::Unexpected<T2>(s2);
+    a.swap(b);
+    REQUIRE_EQ(a.error().i, s2);
+    REQUIRE_EQ(b.value().i, s1);
+
+    a = yapdf::Unexpected<T2>(s1);
+    b = s2;
+    a.swap(b);
+    REQUIRE_EQ(a.value().i, s2);
+    REQUIRE_EQ(b.error().i, s1);
+
+    a = yapdf::Unexpected<T2>(s1);
+    b = yapdf::Unexpected<T2>(s2);
+    a.swap(b);
+    REQUIRE_EQ(a.error().i, s2);
+    REQUIRE_EQ(b.error().i, s1);
+}
+
+TEST_CASE("swap") {
+    swap_test<NoThrow, NoThrow>();
+    swap_test<NoThrow, CanThrowMove>();
+    swap_test<CanThrowMove, NoThrow>();
+
+    std::string s1 = "abcdefghijklmnopqrstuvwxyz";
+    std::string s2 = "zyxwvutsrqponmlkjihgfedcbaxxx";
+    yapdf::Expected<NoThrow, WillThrowMove> a(s1);
+    yapdf::Expected<NoThrow, WillThrowMove> b(yapdf::unexpect, s2);
+
+    should_throw = 1;
+    REQUIRE_THROWS(swap(a, b));
+    REQUIRE_EQ(a.value().i, s1);
+    REQUIRE_EQ(b.error().i, s2);
 }
