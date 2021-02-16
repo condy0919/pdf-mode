@@ -181,6 +181,7 @@
 #ifndef YAPDF_EXPECTED_HPP_
 #define YAPDF_EXPECTED_HPP_
 
+#include <functional>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
@@ -188,6 +189,15 @@
 
 #include "likely.hpp"
 #include "requires.hpp"
+
+#define YAPDF_TRY(exp)                                                                                                 \
+    ({                                                                                                                 \
+        const auto result = (exp);                                                                                     \
+        if (YAPDF_UNLIKELY(result.hasError())) {                                                                       \
+            return std::move(result.error());                                                                          \
+        }                                                                                                              \
+        std::move(result.value())                                                                                      \
+    })
 
 namespace yapdf {
 /// An exception type to report the situation where an attempt to access the value of `Expected<T, E>` object that
@@ -224,19 +234,19 @@ public:
 
     /// Copy construct from another `Unexpected` type
     template <typename U, YAPDF_REQUIRES(std::is_constructible_v<E, U>)>
-    explicit Unexpected(const Unexpected<U>& rhs) noexcept(std::is_nothrow_constructible_v<E, U>)
+    /* implicit */ Unexpected(const Unexpected<U>& rhs) noexcept(std::is_nothrow_constructible_v<E, U>)
         : error_(rhs.error_) {}
 
     /// Move construct from another `Unexpected` type
     template <typename U, YAPDF_REQUIRES(std::is_constructible_v<E, U&&>)>
-    explicit Unexpected(Unexpected<U>&& rhs) noexcept(std::is_nothrow_constructible_v<E, U&&>)
+    /* implicit */ Unexpected(Unexpected<U>&& rhs) noexcept(std::is_nothrow_constructible_v<E, U&&>)
         : error_(std::move(rhs.error_)) {}
 
     /// The default copy constructor
-    explicit Unexpected(const Unexpected&) noexcept(std::is_nothrow_copy_constructible_v<E>) = default;
+    /* implicit */ Unexpected(const Unexpected&) noexcept(std::is_nothrow_copy_constructible_v<E>) = default;
 
     /// The default move constructor
-    explicit Unexpected(Unexpected&&) noexcept(std::is_nothrow_move_constructible_v<E>) = default;
+    /* implicit */ Unexpected(Unexpected&&) noexcept(std::is_nothrow_move_constructible_v<E>) = default;
 
     /// Copy assignment from another `Unexpected` type
     template <typename U, YAPDF_REQUIRES(std::is_assignable_v<E, U>)>
@@ -305,6 +315,7 @@ bool operator!=(const Unexpected<E>& lhs, const Unexpected<E>& rhs) noexcept {
 }
 /// \}
 
+/// Swap two `Unexpected` types
 template <typename E>
 void swap(Unexpected<E>& lhs, Unexpected<E>& rhs) noexcept(noexcept(lhs.swap(rhs))) {
     lhs.swap(rhs);
@@ -343,7 +354,7 @@ inline constexpr UnexpectType unexpect{};
 /// ```
 ///
 template <typename T, typename E>
-class [[nodiscard]] Expected {
+class [[nodiscard]] Expected final {
     static_assert(!std::is_reference_v<T>, "T must not be a reference");
     static_assert(!std::is_reference_v<E>, "E must not be a reference");
     static_assert(!std::is_same_v<std::remove_cv_t<T>, UnexpectType>, "T must not be UnexpectType");
@@ -367,8 +378,6 @@ public:
     /// \{
     ///
     /// Construct `Expected` with a `T`.
-    ///
-    /// Implicit construction is enabled for intuition.
     /* implicit */ Expected(const T& rhs) noexcept(std::is_nothrow_copy_constructible_v<T>)
         : ex_(std::in_place_index_t<0>{}, rhs) {}
     /* implicit */ Expected(T&& rhs) noexcept(std::is_nothrow_move_constructible_v<T>)
@@ -378,8 +387,6 @@ public:
     /// \{
     ///
     /// Construct `Expected` with an `E`.
-    ///
-    /// implicit construction is enabled for intuition.
     /* implicit */ Expected(const Unexpected<E>& rhs) noexcept(std::is_nothrow_copy_constructible_v<E>)
         : ex_(std::in_place_index_t<1>{}, rhs.error()) {}
     /* implicit */ Expected(Unexpected<E>&& rhs) noexcept(std::is_nothrow_move_constructible_v<E>)
@@ -387,11 +394,11 @@ public:
     /// \}
 
     /// The default copy constructor
-    explicit Expected(const Expected&) noexcept(
+    /* implicit */ Expected(const Expected&) noexcept(
         std::is_nothrow_copy_constructible_v<T> && std::is_nothrow_copy_constructible_v<E>) = default;
 
     /// The default move constructor
-    explicit Expected(Expected&&) noexcept(
+    /* implicit */ Expected(Expected&&) noexcept(
         std::is_nothrow_move_constructible_v<T> && std::is_nothrow_move_constructible_v<E>) = default;
 
     /// \{
@@ -907,6 +914,21 @@ bool operator!=(const Expected<T, E>& lhs, const Unexpected<U>& rhs) noexcept {
 
 template <typename T, typename E, typename U>
 bool operator!=(const Unexpected<U>& lhs, const Expected<T, E>& rhs) noexcept {
+    return !(lhs == rhs);
+}
+/// \}
+
+/// \{
+///
+/// Equality operators for `Expected` types
+template <typename T, typename E>
+bool operator==(const Expected<T, E>& lhs, const Expected<T, E>& rhs) noexcept {
+    return lhs.hasValue() == rhs.hasValue() ? lhs.value() == rhs.value()
+                                            : lhs.hasError() == rhs.hasError() && lhs.error() == rhs.error();
+}
+
+template <typename T, typename E>
+bool operator!=(const Expected<T, E>& lhs, const Expected<T, E>& rhs) noexcept {
     return !(lhs == rhs);
 }
 /// \}
