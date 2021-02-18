@@ -86,6 +86,7 @@ install(TARGETS yapdf LIBRARY DESTINATION lib RUNTIME DESTINATION bin)
 target_sources(yapdf
   PRIVATE
     src/lib.cpp
+    src/bridge.cpp
 )
 
 ### Obtain version information from Git
