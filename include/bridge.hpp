@@ -17,21 +17,17 @@
 #include "void.hpp"
 
 #define YAPDF_EMACS_APPLY(env, f, ...) (env)->f((env), ##__VA_ARGS__)
-#define YAPDF_EMACS_CHECK(env)                                                                                         \
+#define YAPDF_EMACS_APPLY_CHECK(env, f, ...)                                                                           \
     ({                                                                                                                 \
-        emacs_value symbol, data;                                                                                      \
-        const emacs_funcall_exit status = YAPDF_EMACS_APPLY(env, non_local_exit_check);                                \
+        const auto ret = YAPDF_EMACS_APPLY(env, f, ##__VA_ARGS__);                                                     \
+        const auto status = checkError();                                                                              \
         switch (status) {                                                                                              \
-        case emacs_funcall_exit_return:                                                                                \
-            break;                                                                                                     \
-        case emacs_funcall_exit_signal:                                                                                \
-            break;                                                                                                     \
-        case emacs_funcall_exit_throw:                                                                                 \
+        case ::yapdf::emacs::FuncallExit::Return:                                                                      \
             break;                                                                                                     \
         default:                                                                                                       \
-            __builtin_unreachable();                                                                                   \
+            return ::yapdf::Unexpected(std::make_tuple(status, getError()));                                           \
         }                                                                                                              \
-        0                                                                                                              \
+        ret;                                                                                                           \
     })
 
 namespace yapdf {
@@ -327,7 +323,10 @@ public:
         return env_;
     }
 
-    /// Provide feature to Emacs
+    /// Provide feature to Emacs.
+    ///
+    /// Presume that `intern` never fails for small strings, e.g. "provide" and the `feature` string. The same
+    /// assumption for `(funcall 'provide feature)`
     void provide(const char* feature) noexcept {
         emacs_value feat = YAPDF_EMACS_APPLY(env_, intern, feature);
         emacs_value prv = YAPDF_EMACS_APPLY(env_, intern, "provide");
@@ -335,10 +334,10 @@ public:
     }
 
     /// Return the canonical symbol whose name is `s`.
-    // Value intern(const char* s) {
-    //     const emacs_value val = YAPDF_EMACS_APPLY(env_, intern, s);
-    //     return Value(this, val);
-    // }
+    Expected<Value, std::tuple<FuncallExit, Error>> intern(const char* s) noexcept {
+        const emacs_value val = YAPDF_EMACS_APPLY_CHECK(env_, intern, s);
+        return Value(val, *this);
+    }
 
     /// Obtain the last function exit type for an environment.
     ///
@@ -351,6 +350,16 @@ public:
         const emacs_funcall_exit status = YAPDF_EMACS_APPLY(env_, non_local_exit_check);
         return static_cast<FuncallExit>(status);
     }
+
+
+#if EMACS_MAJOR_VERSION >= 26
+    /// Return `true` if the user wants to quit by hitting <kbd>C-g</kbd>. In that case, you should return to Emacs as
+    /// soon as possible, potentially aborting long-running operations. When a quit is pending after return from a
+    /// module function, Emacs quits without taking the result value or a possible pending nonlocal exit into account.
+    bool shouldQuit() noexcept {
+        return YAPDF_EMACS_APPLY(env_, should_quit);
+    }
+#endif
 
     /// Retrieve additional data for nonlocal exits.
     ///
@@ -536,10 +545,6 @@ public:
 
     // function register
     void funcall();
-
-#if EMACS_MAJOR_VERSION >= 26
-    bool should_quit();
-#endif
 
 #if EMACS_MAJOR_VERSION >= 27
     // enum emacs_process_input_result (*process_input) (emacs_env *env)
