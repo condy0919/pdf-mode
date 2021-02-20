@@ -2,6 +2,10 @@
 
 namespace yapdf {
 namespace emacs {
+Value Value::typeOf() const noexcept {
+    return Value(YAPDF_EMACS_APPLY(env_.native(), type_of, val_), env_);
+}
+
 Value::operator bool() const noexcept {
     return YAPDF_EMACS_APPLY(env_.native(), is_not_nil, val_);
 }

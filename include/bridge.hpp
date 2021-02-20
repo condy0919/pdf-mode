@@ -13,7 +13,6 @@
 
 #include <emacs-module.h>
 
-#include "emacs-module.h"
 #include "expected.hpp"
 #include "void.hpp"
 
@@ -54,6 +53,9 @@ public:
     emacs_value native() const noexcept {
         return val_;
     }
+
+    /// Return the type of a Lisp symbol. It corresponds exactly to the Lisp `type-of` function.
+    Value typeOf() const noexcept;
 
     /// Check whether the Lisp object is not `nil`.
     ///
@@ -412,33 +414,6 @@ public:
         friend class Emacs;
 
     public:
-        // TODO grow me!
-        enum class Type {
-            Integer,
-            Symbol,
-            String,
-            Cons,
-            Float,
-            Unknown,
-        };
-
-        /// Return the type of a Lisp symbol. It corresponds exactly to the Lisp `type-of` function.
-        [[nodiscard]] Type typeOf() const {
-            // const Value type(emacs_, YAPDF_EMACS_APPLY(emacs_->env_, type_of, value_));
-            // if (type == emacs_->intern("integer")) {
-            //     return Type::Integer;
-            // } else if (type == emacs_->intern("symbol")) {
-            //     return Type::Symbol;
-            // } else if (type == emacs_->intern("string")) {
-            //     return Type::String;
-            // } else if (type == emacs_->intern("cons")) {
-            //     return Type::Cons;
-            // } else if (type == emacs_->intern("float")) {
-            //     return Type::Float;
-            // }
-            return Type::Unknown;
-        }
-
         /// Return the integral value stored in the Emacs integer object.
         ///
         /// If it doesn't represent an integer object, Emacs will signal an error of type
@@ -491,11 +466,6 @@ public:
         void vec_set();
         void vec_size();
 
-        /// Get the native implementation `emacs_value`
-        [[nodiscard]] emacs_value native() const {
-            return value_;
-        }
-
     private:
         Value(Emacs* emacs, emacs_value value) : emacs_(emacs), value_(value) {}
 
@@ -508,13 +478,6 @@ public:
     // memory management
     Value makeGlobalRef(Value value);
     void freeGlobalRef(Value value);
-
-    // non-local exit handling
-    void non_local_exit_check();
-    void non_local_exit_clear();
-    void non_local_exit_get();
-    void non_local_exit_signal();
-    void non_local_exit_throw();
 
     /// Create an Emacs integer object from a C integer value.
     ///
