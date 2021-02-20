@@ -15,15 +15,20 @@ int emacs_module_init(struct emacs_runtime* runtime) EMACS_NOEXCEPT {
 }
 
 TEST_CASE("Conversion Between Lisp and Module Values") {
-    yapdf::emacs::Env emacs(env);
+    yapdf::emacs::Env e(env);
+    using yapdf::emacs::Value;
 
     SUBCASE("Integer") {
-        // REQUIRE_EQ(emacs.makeInteger(-1).asInteger(), -1);
-        // REQUIRE_EQ(emacs.makeInteger(42).asInteger(), 42);
-        // REQUIRE_EQ(emacs.makeInteger(65536).asInteger(), 65536);
+        for (int i : {1, 42, 65536, -1}) {
+            // c++ -> lisp
+            auto val = e.make<Value::Type::Int>(i).value();
 
-        // REQUIRE_EQ(emacs.makeInteger(-1), emacs.makeInteger(-1));
-        // REQUIRE_NE(emacs.makeInteger(-1), emacs.makeInteger(-2));
+            // (type-of 1) -> 'integer
+            REQUIRE_EQ(val.typeOf(), e.intern("integer").value());
+
+            // lisp -> c++
+            REQUIRE_EQ(val.as<Value::Type::Int>().value(), i);
+        }
     }
 
     SUBCASE("BigInteger") {

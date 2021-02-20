@@ -6,26 +6,30 @@
 #define YAPDF_BRIDGE_HPP_
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <type_traits>
 #include <utility>
+#include <vector>
 
 #include <emacs-module.h>
 
 #include "expected.hpp"
+#include "requires.hpp"
 #include "void.hpp"
 
-#define YAPDF_EMACS_APPLY(env, f, ...) (env)->f((env), ##__VA_ARGS__)
+#define YAPDF_EMACS_APPLY(env, f, ...) ((env).native())->f((env).native(), ##__VA_ARGS__)
 #define YAPDF_EMACS_APPLY_CHECK(env, f, ...)                                                                           \
     ({                                                                                                                 \
-        const auto ret = YAPDF_EMACS_APPLY(env, f, ##__VA_ARGS__);                                                     \
-        const auto status = checkError();                                                                              \
+        const auto ret = YAPDF_EMACS_APPLY((env), f, ##__VA_ARGS__);                                                   \
+        const auto status = (env).checkError();                                                                        \
         switch (status) {                                                                                              \
         case ::yapdf::emacs::FuncallExit::Return:                                                                      \
             break;                                                                                                     \
         default:                                                                                                       \
-            return ::yapdf::Unexpected(std::make_tuple(status, getError()));                                           \
+            return ::yapdf::Unexpected((env).getError());                                                              \
         }                                                                                                              \
         ret;                                                                                                           \
     })
@@ -34,6 +38,32 @@ namespace yapdf {
 namespace emacs {
 // forward
 class Env;
+class Error;
+enum class FuncallExit;
+
+///
+class BigInt {
+public:
+    explicit BigInt(int sign) noexcept : sign_(sign) {}
+
+    BigInt(int sign, std::vector<emacs_limb_t> magnitude) noexcept : sign_(sign), magnitude_(std::move(magnitude)) {}
+
+    int sign() const noexcept {
+        return sign_;
+    }
+
+    std::size_t count() const noexcept {
+        return magnitude_.size();
+    }
+
+    const emacs_limb_t* magnitude() const noexcept {
+        return magnitude_.data();
+    }
+
+private:
+    int sign_;
+    std::vector<emacs_limb_t> magnitude_;
+};
 
 /// A type that represents Lisp values.
 ///
@@ -43,6 +73,14 @@ class Env;
 /// calling back into the Lisp runtime.
 class Value {
 public:
+    ///
+    enum class Type {
+        Int,
+        Float,
+        Time,
+        BigInt,
+    };
+
     Value(emacs_value val, Env& env) noexcept : val_(val), env_(env) {}
 
     /// Return the native handle of `emacs_value`
@@ -52,6 +90,50 @@ public:
 
     /// Return the type of a Lisp symbol. It corresponds exactly to the Lisp `type-of` function.
     Value typeOf() const noexcept;
+
+    /// Convert from Emacs value to native C++ types.
+    ///
+    /// The relationship between the `type` and native C++ type can be described with the following table:
+    ///
+    /// | `type`         | C++ type                   |
+    /// |----------------|----------------------------|
+    /// | `Type::Int`    | `std::intmax_t`            |
+    /// | `Type::Float`  | `double`                   |
+    /// | `Type::Time`   | `std::chrono::nanoseconds` |
+    /// | `Type::BigInt` | `yapdf::emacs::BigInt`     |
+    ///
+    /// # Int
+    ///
+    /// Return the integral value stored in the Emacs integer object.
+    ///
+    /// If it doesn't represent an integer object, Emacs will signal an error of type `wrong-type-argument`. If the
+    /// integer represented by `Value` can't be represented as `std::intmax_t`, Emacs will signal an error of type
+    /// `overflow-error`.
+    ///
+    /// # Float
+    ///
+    /// Return the value stored in the Emacs floating-point number.
+    ///
+    /// If it doesn't represent a floating-point object, Emacs will signal an error of type `wrong-type-argument`.
+    ///
+    /// # Time
+    ///
+    /// Return the value stored in the Emacs timestamp with nanoseconds precision.
+    ///
+    /// If you need to deal with time values that not representable by `struct timespec`, or if you want higher
+    /// precision, call the Lisp function `encode-time` and work with its return value.
+    ///
+    /// Available since Emacs 27.
+    ///
+    /// # BigInt
+    ///
+    ///
+    ///
+    /// Available since Emacs 27.
+    template <Type type>
+    auto as() const noexcept {
+        return as(std::integral_constant<Type, type>{});
+    }
 
     /// Check whether the Lisp object is not `nil`.
     ///
@@ -65,8 +147,8 @@ public:
     ///
     /// # Note
     ///
-    /// You could implement an equivalent test by using `intern` to get an `emacs_value` represent `nil`, then use ‘eq’,
-    /// described above, to test for equality. But using this function is more convenient.
+    /// You could implement an equivalent test by using `intern` to get an `emacs_value` represent `nil`, then use `eq`,
+    /// described below, to test for equality. But using this function is more convenient.
     operator bool() const noexcept;
 
     /// \{
@@ -86,6 +168,13 @@ public:
         return !(*this == rhs);
     }
     /// \}
+
+private:
+    // Implementations of `as`
+    Expected<std::intmax_t, Error> as(std::integral_constant<Value::Type, Value::Type::Int>) const noexcept;
+    Expected<double, Error> as(std::integral_constant<Value::Type, Value::Type::Float>) const noexcept;
+    Expected<std::chrono::nanoseconds, Error> as(std::integral_constant<Value::Type, Value::Type::Time>) const noexcept;
+    Expected<BigInt, Error> as(std::integral_constant<Value::Type, Value::Type::BigInt>) const noexcept;
 
 private:
     emacs_value val_;
@@ -207,7 +296,14 @@ enum class FuncallExit {
 /// | `non_local_exit_clear`  | Reset the state of pending error  |
 class Error {
 public:
-    Error(Value sym, Value data) noexcept : sym_(sym), data_(data) {}
+    Error(FuncallExit status, Value sym, Value data) noexcept : status_(status), sym_(sym), data_(data) {}
+
+    /// Return the exit status of a `funcall`.
+    ///
+    /// It shouldn't be `FuncallExit::Return`.
+    FuncallExit status() const noexcept {
+        return status_;
+    }
 
     /// \{
     ///
@@ -301,6 +397,7 @@ public:
     /// \}
 
 private:
+    FuncallExit status_;
     Value sym_;
     Value data_;
 };
@@ -328,16 +425,44 @@ public:
     /// Presume that `intern` never fails for small strings, e.g. "provide" and the `feature` string. The same
     /// assumption for `(funcall 'provide feature)`
     void provide(const char* feature) noexcept {
-        emacs_value feat = YAPDF_EMACS_APPLY(env_, intern, feature);
-        emacs_value prv = YAPDF_EMACS_APPLY(env_, intern, "provide");
-        YAPDF_EMACS_APPLY(env_, funcall, prv, 1, &feat);
+        emacs_value feat = YAPDF_EMACS_APPLY(*this, intern, feature);
+        emacs_value prv = YAPDF_EMACS_APPLY(*this, intern, "provide");
+        YAPDF_EMACS_APPLY(*this, funcall, prv, 1, &feat);
     }
 
     /// Return the canonical symbol whose name is `s`.
-    Expected<Value, std::tuple<FuncallExit, Error>> intern(const char* s) noexcept {
-        const emacs_value val = YAPDF_EMACS_APPLY_CHECK(env_, intern, s);
+    Expected<Value, Error> intern(const char* s) noexcept {
+        const emacs_value val = YAPDF_EMACS_APPLY_CHECK(*this, intern, s);
         return Value(val, *this);
     }
+
+    /// Create an Emacs Lisp value from native C++ types.
+    ///
+    /// # Int
+    ///
+    /// If the value can't be represented as an Emacs integer, Emacs will signal an error of type `overflow-error`.
+    ///
+    /// # Float
+    ///
+    /// Create an Emacs floating-point number from a C floating-point value.
+    ///
+    /// # Time
+    ///
+    /// # BigInt
+    ///
+    template <Value::Type type, typename... Args>
+    Expected<Value, Error> make(Args&&... args) noexcept {
+        return make(std::integral_constant<Value::Type, type>{}, std::forward<Args>(args)...);
+    }
+
+#if EMACS_MAJOR_VERSION >= 26
+    /// Return `true` if the user wants to quit by hitting <kbd>C-g</kbd>. In that case, you should return to Emacs as
+    /// soon as possible, potentially aborting long-running operations. When a quit is pending after return from a
+    /// module function, Emacs quits without taking the result value or a possible pending nonlocal exit into account.
+    bool shouldQuit() noexcept {
+        return YAPDF_EMACS_APPLY(*this, should_quit);
+    }
+#endif
 
     /// Obtain the last function exit type for an environment.
     ///
@@ -347,30 +472,20 @@ public:
     /// - If there is a nonlocal raised by the Lisp `signal()` function, it returns `FuncallExit::Signal`
     /// - Otherwise, it returns `FuncallExit::Throw` which is raised by the Lisp `throw()` function
     FuncallExit checkError() noexcept {
-        const emacs_funcall_exit status = YAPDF_EMACS_APPLY(env_, non_local_exit_check);
+        const emacs_funcall_exit status = YAPDF_EMACS_APPLY(*this, non_local_exit_check);
         return static_cast<FuncallExit>(status);
     }
 
-
-#if EMACS_MAJOR_VERSION >= 26
-    /// Return `true` if the user wants to quit by hitting <kbd>C-g</kbd>. In that case, you should return to Emacs as
-    /// soon as possible, potentially aborting long-running operations. When a quit is pending after return from a
-    /// module function, Emacs quits without taking the result value or a possible pending nonlocal exit into account.
-    bool shouldQuit() noexcept {
-        return YAPDF_EMACS_APPLY(env_, should_quit);
-    }
-#endif
-
     /// Retrieve additional data for nonlocal exits.
     ///
-    /// - It shouldn't be called if there is no nonlocal exit pending, or use the `Error` value returned by this
+    /// - It shouldn't be called if there is no nonlocal exit pending, or using the `Error` value returned by this
     /// function is undefined.
     /// - If it's caused by `signal()`, the `Error` value holds the error symbol and relevant data
     /// - If it's caused by `throw()`, the `Error` value holds the tag and the catch value
     Error getError() noexcept {
         emacs_value sym = nullptr, data = nullptr;
-        YAPDF_EMACS_APPLY(env_, non_local_exit_get, &sym, &data);
-        return Error(Value(sym, *this), Value(data, *this));
+        const emacs_funcall_exit status = YAPDF_EMACS_APPLY(*this, non_local_exit_get, &sym, &data);
+        return Error(static_cast<FuncallExit>(status), Value(sym, *this), Value(data, *this));
     }
 
     /// Reset the pending-error state of `Env`.
@@ -380,7 +495,7 @@ public:
     ///
     /// You can use `clearError()` to ignore certain kinds of errors.
     void clearError() noexcept {
-        YAPDF_EMACS_APPLY(env_, non_local_exit_clear);
+        YAPDF_EMACS_APPLY(*this, non_local_exit_clear);
     }
 
     /// `throwError()` is the module equivalent of the Lisp `throw()` function: it causes Emacs to perform a nonlocal
@@ -392,7 +507,7 @@ public:
     /// function. If there was already a nonlocal exit pending when calling `throwError()`, the function does nothing;
     /// i.e. it doesn't overwrite catch tag and value. To do that, you must explicitly call `clearError()` first.
     void throwError(Error err) noexcept {
-        YAPDF_EMACS_APPLY(env_, non_local_exit_throw, err.tag().native(), err.value().native());
+        YAPDF_EMACS_APPLY(*this, non_local_exit_throw, err.tag().native(), err.value().native());
     }
 
     /// `signalError()` is the module equivalent of the Lisp `signal()` function: it causes Emacs to signal an error of
@@ -404,13 +519,86 @@ public:
     /// function. If there was already a nonlocal exit pending when calling `signalError()`, the function does nothing;
     /// i.e. it doesn't overwrite the error symbol and data. To do that, you must explicitly call `clearError()` first.
     void signalError(Error err) noexcept {
-        YAPDF_EMACS_APPLY(env_, non_local_exit_signal, err.symbol().native(), err.data().native());
+        YAPDF_EMACS_APPLY(*this, non_local_exit_signal, err.symbol().native(), err.data().native());
+    }
+
+private:
+    // Implementations of `make`
+    template <typename T, YAPDF_REQUIRES(std::is_integral_v<T>)>
+    Expected<Value, Error> make(std::integral_constant<Value::Type, Value::Type::Int>, T x) noexcept {
+        return Value(YAPDF_EMACS_APPLY_CHECK(*this, make_integer, x), *this);
+    }
+
+    template <typename T, YAPDF_REQUIRES(std::is_floating_point_v<T>)>
+    Expected<Value, Error> make(std::integral_constant<Value::Type, Value::Type::Float>, T x) noexcept {
+        return Value(YAPDF_EMACS_APPLY_CHECK(*this, make_float, x), *this);
+    }
+
+    Expected<Value, Error> make(std::integral_constant<Value::Type, Value::Type::Time> tag,
+                                std::chrono::nanoseconds ns) noexcept {
+        const auto secs = std::chrono::duration_cast<std::chrono::seconds>(ns);
+        return make(tag, secs, ns - secs);
+    }
+
+    Expected<Value, Error> make(std::integral_constant<Value::Type, Value::Type::Time>, std::chrono::seconds secs,
+                                std::chrono::nanoseconds ns) noexcept {
+#if EMACS_MAJOR_VERSION >= 27
+        const struct timespec ts = {
+            .tv_sec = secs.count(),
+            .tv_nsec = ns.count(),
+        };
+        return Value(YAPDF_EMACS_APPLY_CHECK(*this, make_time, ts), *this);
+#else
+        __builtin_unreachable();
+#endif
+    }
+
+    Expected<Value, Error> make(std::integral_constant<Value::Type, Value::Type::BigInt>, BigInt x) noexcept {
+#if EMACS_MAJOR_VERSION >= 27
+        return Value(YAPDF_EMACS_APPLY_CHECK(*this, make_big_integer, x.sign(), x.count(), x.magnitude()), *this);
+#else
+        __builtin_unreachable();
+#endif
     }
 
 private:
     emacs_env* env_;
 };
 
+inline Expected<std::intmax_t, Error> Value::as(std::integral_constant<Value::Type, Value::Type::Int>) const noexcept {
+    const std::intmax_t val = YAPDF_EMACS_APPLY_CHECK(env_, extract_integer, val_);
+    return val;
+}
+
+inline Expected<double, Error> Value::as(std::integral_constant<Value::Type, Value::Type::Float>) const noexcept {
+    const double val = YAPDF_EMACS_APPLY_CHECK(env_, extract_float, val_);
+    return val;
+}
+
+inline Expected<std::chrono::nanoseconds, Error>
+Value::as(std::integral_constant<Value::Type, Value::Type::Time>) const noexcept {
+#if EMACS_MAJOR_VERSION >= 27
+    const struct timespec ts = YAPDF_EMACS_APPLY_CHECK(env_, extract_time, val_);
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::seconds(ts.tv_sec) +
+                                                                std::chrono::nanoseconds(ts.tv_nsec));
+#else
+    __builtin_unreachable();
+#endif
+}
+
+inline Expected<BigInt, Error> Value::as(std::integral_constant<Value::Type, Value::Type::BigInt>) const noexcept {
+#if EMACS_MAJOR_VERSION >= 27
+    int sign;
+    std::ptrdiff_t count;
+    YAPDF_EMACS_APPLY_CHECK(env_, extract_big_integer, val_, &sign, &count, nullptr);
+
+    std::vector<emacs_limb_t> magnitude(count);
+    YAPDF_EMACS_APPLY_CHECK(env_, extract_big_integer, val_, &sign, &count, &magnitude[0]);
+    return BigInt(sign, std::move(magnitude));
+#else
+    __builtin_unreachable();
+#endif
+}
 } // namespace emacs
 
 /// An Emacs instance
@@ -423,45 +611,6 @@ public:
         friend class Emacs;
 
     public:
-        /// Return the integral value stored in the Emacs integer object.
-        ///
-        /// If it doesn't represent an integer object, Emacs will signal an error of type
-        /// `wrong-type-argument`. If the integer represented by `Value` can't be represented as
-        /// `std::intmax_t`, Emacs will signal an error of type `overflow-error`.
-        [[nodiscard]] std::intmax_t asInteger() const {
-            return YAPDF_EMACS_APPLY(emacs_->env_, extract_integer, value_);
-        }
-
-        /// Return the value stored in the Emacs floating-point number.
-        ///
-        /// If it doesn't represent a floating-point object, Emacs will signal an error of type
-        /// `wrong-type-argument`.
-        [[nodiscard]] double asFloat() const {
-            return YAPDF_EMACS_APPLY(emacs_->env_, extract_float, value_);
-        }
-
-#if EMACS_MAJOR_VERSION >= 27
-        //   bool (*extract_big_integer) (emacs_env *env, emacs_value arg, int
-        //   *sign,
-        //                                ptrdiff_t *count, emacs_limb_t
-        //                                *magnitude)
-        //     EMACS_ATTRIBUTE_NONNULL (1);
-
-        /// Return the value stored in the Emacs timestamp with nanoseconds precision.
-        ///
-        /// If you need to deal with time values that not representable by `struct timespec`, or if
-        /// you want higher precision, call the Lisp function `encode-time` and work with its return
-        /// value.
-        ///
-        /// \since Emacs 27
-        [[nodiscard]] std::chrono::nanoseconds asTime() const {
-            const struct timespec ts = YAPDF_EMACS_APPLY(emacs_->env_, extract_time, value_);
-            return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::seconds(ts.tv_sec) +
-                                                                        std::chrono::nanoseconds(ts.tv_nsec));
-        }
-
-#endif
-
         void copy_string_contents();
 
         void make_user_ptr();
@@ -487,19 +636,6 @@ public:
     // memory management
     Value makeGlobalRef(Value value);
     void freeGlobalRef(Value value);
-
-    /// Create an Emacs integer object from a C integer value.
-    ///
-    /// If the value can't be represented as an Emacs integer, Emacs will signal an error of type
-    /// `overflow-error`.
-    Value makeInteger(std::intmax_t v) {
-        return Value(this, YAPDF_EMACS_APPLY(env_, make_integer, v));
-    }
-
-    /// Create an Emacs floating-point number from a C floating-point value.
-    Value makeFloat(double v) {
-        return Value(this, YAPDF_EMACS_APPLY(env_, make_float, v));
-    }
 
     /// Create a multibyte Lisp string object.
     ///
@@ -527,7 +663,7 @@ public:
     ///
     /// `s` must be null-terminated.
     Value makeString(const char* s, std::size_t len) {
-        return Value(this, YAPDF_EMACS_APPLY(env_, make_string, s, len));
+        // return Value(this, YAPDF_EMACS_APPLY(env_, make_string, s, len));
     }
 
     Value makeString(const char* s) {
@@ -540,7 +676,7 @@ public:
 
     // TODO
     Value makeFunction() {
-        return Value(this, YAPDF_EMACS_APPLY(env_, make_function, 0, 0, nullptr, "docstring", nullptr));
+        // return Value(this, YAPDF_EMACS_APPLY(env_, make_function, 0, 0, nullptr, "docstring", nullptr));
     }
 
     // function register
@@ -553,26 +689,6 @@ public:
     //   struct timespec (*extract_time) (emacs_env *env, emacs_value arg)
     //     EMACS_ATTRIBUTE_NONNULL (1);
 
-    /// Create a
-    ///
-    /// \since Emacs 27
-    Value makeTime(std::chrono::seconds secs, std::chrono::nanoseconds ns) {
-        const struct timespec ts = {
-            .tv_sec = secs.count(),
-            .tv_nsec = ns.count(),
-        };
-        return Value(this, YAPDF_EMACS_APPLY(env_, make_time, ts));
-    }
-
-    Value makeTime(std::chrono::nanoseconds ns) {
-        const auto secs = std::chrono::duration_cast<std::chrono::seconds>(ns);
-        ns -= secs;
-        return makeTime(secs, ns);
-    }
-
-//   emacs_value (*make_big_integer) (emacs_env *env, int sign, ptrdiff_t count,
-//                                    const emacs_limb_t *magnitude)
-//     EMACS_ATTRIBUTE_NONNULL (1);
 #endif
 
 #if EMACS_MAJOR_VERSION >= 28
