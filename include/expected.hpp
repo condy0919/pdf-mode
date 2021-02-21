@@ -923,8 +923,8 @@ bool operator!=(const Unexpected<U>& lhs, const Expected<T, E>& rhs) noexcept {
 /// Equality operators for `Expected` types
 template <typename T, typename E>
 bool operator==(const Expected<T, E>& lhs, const Expected<T, E>& rhs) noexcept {
-    return lhs.hasValue() == rhs.hasValue() ? lhs.value() == rhs.value()
-                                            : lhs.hasError() == rhs.hasError() && lhs.error() == rhs.error();
+    return lhs.hasValue() && rhs.hasValue() ? lhs.value() == rhs.value()
+                                            : lhs.hasError() && rhs.hasError() && lhs.error() == rhs.error();
 }
 
 template <typename T, typename E>

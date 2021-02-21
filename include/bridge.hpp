@@ -5,6 +5,7 @@
 #ifndef YAPDF_BRIDGE_HPP_
 #define YAPDF_BRIDGE_HPP_
 
+#include <cassert>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -29,7 +30,11 @@
         case ::yapdf::emacs::FuncallExit::Return:                                                                      \
             break;                                                                                                     \
         default:                                                                                                       \
-            return ::yapdf::Unexpected((env).getError());                                                              \
+            return ::yapdf::Unexpected(({                                                                              \
+                auto err = (env).getError();                                                                           \
+                (env).clearError();                                                                                    \
+                err;                                                                                                   \
+            }));                                                                                                       \
         }                                                                                                              \
         ret;                                                                                                           \
     })
@@ -53,9 +58,11 @@ public:
     enum class Type {
         Int,
         Float,
+        String,
         Time,
     };
 
+    /// Construct a new `Value` from emacs native types
     Value(emacs_value val, Env& env) noexcept : val_(val), env_(env) {}
 
     /// Return the native handle of `emacs_value`
@@ -74,6 +81,7 @@ public:
     /// |----------------|----------------------------|
     /// | `Type::Int`    | `std::intmax_t`            |
     /// | `Type::Float`  | `double`                   |
+    /// | `Type::String` | `std::string`              |
     /// | `Type::Time`   | `std::chrono::nanoseconds` |
     ///
     /// # Int
@@ -89,6 +97,25 @@ public:
     /// Return the value stored in the Emacs floating-point number.
     ///
     /// If it doesn't represent a floating-point object, Emacs will signal an error of type `wrong-type-argument`.
+    ///
+    /// # String
+    ///
+    /// Return the value stored in the Emacs string.
+    ///
+    /// If value doesn't represent a Lisp string, Emacs signals an error of type `wrong-type-argument`.
+    ///
+    /// Emacs copies the UTF-8 representation of the characters out. If value contains only Unicode scalar values (i.e.
+    /// it's either a unibyte string containing only ASCII characters or a multibyte string containing only characters
+    /// that are Unicode scalar values), the string stored in buffer will be a valid UTF-8 string representing the same
+    /// sequence of scalar values as value. Otherwise, the contents of buffer are unspecified; in practice, Emacs
+    /// attempts to convert scalar values to UTF-8 and leaves other bytes alone, but you shouldn't rely on any specific
+    /// behavior in this case.
+    ///
+    /// There's no environment function to extract string properties. Use the usual Emacs functions such as
+    /// `get-text-property` for that.
+    ///
+    /// To deal with strings that don't represent sequences of Unicode scalar values, you can use Emacs functions such
+    /// as `length` and `aref` to extract the character values directly.
     ///
     /// # Time
     ///
@@ -141,6 +168,7 @@ private:
     // Implementations of `as`
     Expected<std::intmax_t, Error> as(std::integral_constant<Value::Type, Value::Type::Int>) const noexcept;
     Expected<double, Error> as(std::integral_constant<Value::Type, Value::Type::Float>) const noexcept;
+    Expected<std::string, Error> as(std::integral_constant<Value::Type, Value::Type::String>) const noexcept;
     Expected<std::chrono::nanoseconds, Error> as(std::integral_constant<Value::Type, Value::Type::Time>) const noexcept;
 
     emacs_value val_;
@@ -381,6 +409,12 @@ class Env {
 public:
     explicit Env(emacs_env* env) noexcept : env_(env) {}
 
+    ~Env() {
+        if (checkError() != FuncallExit::Return) {
+            clearError();
+        }
+    }
+
     /// Return the native handle of `emacs_env`
     [[nodiscard]] emacs_env* native() const noexcept {
         return env_;
@@ -412,8 +446,32 @@ public:
     ///
     /// Create an Emacs floating-point number from a C floating-point value.
     ///
+    /// # String
+    ///
+    /// Create a multibyte Lisp string object.
+    ///
+    /// If `len` is larger than the maximum allowed Emacs string length, Emacs will raise an `overflow-error` signal.
+    /// Otherwise, Emacs treats the memory at `s` as the UTF-8 representation of a string.
+    ///
+    /// If the memory block delimited by `s` and `len` contains a valid UTF-8 string, the result value will be a
+    /// multibyte Lisp string that contains the same sequence of Unicode scalar values as represented by `s`. Otherwise,
+    /// the return value will be a multibyte Lisp string with unspecified contents; in practice, Emacs will attempt to
+    /// detect as many valid UTF-8 subsequence in `s` as possible and treat the rest as undecodable bytes, but you
+    /// shouldn't rely on any specific behavior in this case.
+    ///
+    /// Don't forget that `s` must be null-terminated.
+    ///
+    /// The returned Lisp string will not contain any text properties. To create a string containing text properties,
+    /// use `funcall` to call functions such as `propertize`.
+    ///
+    /// It can't create strings that contains characters that are not valid Unicode scalar values. Such strings are
+    /// rare, but occur from time to time; examples are strings with UTF-16 surrogate code points or strings with
+    /// extended Emacs characters that don't correspond to Unicode code points. To create such a Lisp string, call e.g.
+    /// the function `string` and pass the desired character values as integers.
+    ///
     /// # Time
     ///
+    /// Available since Emacs 27.
     template <Value::Type type, typename... Args>
     Expected<Value, Error> make(Args&&... args) noexcept {
         return make(std::integral_constant<Value::Type, type>{}, std::forward<Args>(args)...);
@@ -504,6 +562,20 @@ private:
         return make(tag, secs, ns - secs);
     }
 
+    Expected<Value, Error> make(std::integral_constant<Value::Type, Value::Type::String>, const char* s,
+                                std::size_t len) noexcept {
+        return Value(YAPDF_EMACS_APPLY_CHECK(*this, make_string, s, len), *this);
+    }
+
+    Expected<Value, Error> make(std::integral_constant<Value::Type, Value::Type::String> tag, const char* s) noexcept {
+        return make(tag, s, std::strlen(s));
+    }
+
+    Expected<Value, Error> make(std::integral_constant<Value::Type, Value::Type::String> tag,
+                                const std::string& s) noexcept {
+        return make(tag, s.c_str(), s.size());
+    }
+
     Expected<Value, Error> make(std::integral_constant<Value::Type, Value::Type::Time>, std::chrono::seconds secs,
                                 std::chrono::nanoseconds ns) noexcept {
 #if EMACS_MAJOR_VERSION >= 27
@@ -530,6 +602,23 @@ inline Expected<double, Error> Value::as(std::integral_constant<Value::Type, Val
     return val;
 }
 
+inline Expected<std::string, Error> Value::as(std::integral_constant<Value::Type, Value::Type::String>) const noexcept {
+    // retrieve the length of string
+    std::ptrdiff_t len;
+    YAPDF_EMACS_APPLY_CHECK(env_, copy_string_contents, val_, nullptr, &len);
+
+    // copy
+    std::string s(len, '\0');
+    YAPDF_EMACS_APPLY_CHECK(env_, copy_string_contents, val_, &s[0], &len);
+
+    // remove the trailing '\0's
+    if (!s.empty()) {
+        assert(s.back() == '\0');
+        s.pop_back();
+    }
+    return s;
+}
+
 inline Expected<std::chrono::nanoseconds, Error>
 Value::as(std::integral_constant<Value::Type, Value::Type::Time>) const noexcept {
 #if EMACS_MAJOR_VERSION >= 27
@@ -552,8 +641,6 @@ public:
         friend class Emacs;
 
     public:
-        void copy_string_contents();
-
         void make_user_ptr();
         void get_user_ptr();
         void set_user_ptr();
@@ -578,43 +665,6 @@ public:
     Value makeGlobalRef(Value value);
     void freeGlobalRef(Value value);
 
-    /// Create a multibyte Lisp string object.
-    ///
-    /// If `len` is larger than the maximum allowed Emacs string length, Emacs will raise an
-    /// `overflow-error` signal. Otherwise, Emacs treats the memory at `s` as the UTF-8
-    /// representation of a string.
-    ///
-    /// If the memory block delimited by `s` and `len` contains a valid UTF-8 string, the result
-    /// value will be a multibyte Lisp string that contains the same sequence of Unicode scalar
-    /// values as represented by `s`. Otherwise, the return value will be a multibyte Lisp string
-    /// with unspecified contents; in practice, Emacs will attempt to detect as many valid UTF-8
-    /// subsequence in `s` as possible and treat the rest as undecodable bytes, but you shouldn't
-    /// rely on any specific behavior in this case.
-    ///
-    /// The returned Lisp string will not contain any text properties. To create a string containing
-    /// text properties, use `funcall` to call functions such as `propertize`.
-    ///
-    /// `makeString` can't create strings that contains characters that are not valid Unicode scalar
-    /// values. Such strings are rare, but occur from time to time; examples are strings with UTF-16
-    /// surrogate code points or strings with extended Emacs characters that don't correspond to
-    /// Unicode code points. To create such a Lisp string, call e.g. the function `string` and pass
-    /// the desired character values as integers.
-    ///
-    /// # Note
-    ///
-    /// `s` must be null-terminated.
-    Value makeString(const char* s, std::size_t len) {
-        // return Value(this, YAPDF_EMACS_APPLY(env_, make_string, s, len));
-    }
-
-    Value makeString(const char* s) {
-        return makeString(s, std::strlen(s));
-    }
-
-    Value makeString(const std::string& s) {
-        return makeString(s.c_str(), s.size());
-    }
-
     // TODO
     Value makeFunction() {
         // return Value(this, YAPDF_EMACS_APPLY(env_, make_function, 0, 0, nullptr, "docstring", nullptr));
@@ -626,10 +676,6 @@ public:
 #if EMACS_MAJOR_VERSION >= 27
     // enum emacs_process_input_result (*process_input) (emacs_env *env)
     //     EMACS_ATTRIBUTE_NONNULL (1);
-
-    //   struct timespec (*extract_time) (emacs_env *env, emacs_value arg)
-    //     EMACS_ATTRIBUTE_NONNULL (1);
-
 #endif
 
 #if EMACS_MAJOR_VERSION >= 28
