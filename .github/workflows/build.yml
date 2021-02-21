@@ -5,9 +5,13 @@ on: [push, pull_request]
 jobs:
   build:
     runs-on: ubuntu-20.04
+
     steps:
-    - name: Install Emacs & Other stuff
-      run: sudo apt install emacs cmake make
+    - name: Install Emacs
+      run: |
+        sudo add-apt-repository ppa:kelleyk/emacs
+        sudo apt update
+        sudo apt install emacs27
 
     - uses: actions/checkout@v2
 
