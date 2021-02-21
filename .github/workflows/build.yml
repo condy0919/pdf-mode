@@ -1,14 +1,13 @@
-name: Build
+name: Build and Test
 
 on: [push, pull_request]
 
 jobs:
   build:
     runs-on: ubuntu-20.04
-    container: archlinuxrolling/gcc:latest
     steps:
     - name: Install Emacs & Other stuff
-      run: pacman -Sy emacs git tar cmake make --noconfirm
+      run: sudo apt install emacs cmake make
 
     - uses: actions/checkout@v2
 
