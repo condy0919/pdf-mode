@@ -48,15 +48,15 @@ public:
 
     BigInt(int sign, std::vector<emacs_limb_t> magnitude) noexcept : sign_(sign), magnitude_(std::move(magnitude)) {}
 
-    int sign() const noexcept {
+    [[nodiscard]] int sign() const noexcept {
         return sign_;
     }
 
-    std::size_t count() const noexcept {
+    [[nodiscard]] std::size_t count() const noexcept {
         return magnitude_.size();
     }
 
-    const emacs_limb_t* magnitude() const noexcept {
+    [[nodiscard]] const emacs_limb_t* magnitude() const noexcept {
         return magnitude_.data();
     }
 
@@ -84,12 +84,12 @@ public:
     Value(emacs_value val, Env& env) noexcept : val_(val), env_(env) {}
 
     /// Return the native handle of `emacs_value`
-    emacs_value native() const noexcept {
+    [[nodiscard]] emacs_value native() const noexcept {
         return val_;
     }
 
     /// Return the type of a Lisp symbol. It corresponds exactly to the Lisp `type-of` function.
-    Value typeOf() const noexcept;
+    [[nodiscard]] Value typeOf() const noexcept;
 
     /// Convert from Emacs value to native C++ types.
     ///
@@ -176,7 +176,6 @@ private:
     Expected<std::chrono::nanoseconds, Error> as(std::integral_constant<Value::Type, Value::Type::Time>) const noexcept;
     Expected<BigInt, Error> as(std::integral_constant<Value::Type, Value::Type::BigInt>) const noexcept;
 
-private:
     emacs_value val_;
     Env& env_;
 };
@@ -301,7 +300,7 @@ public:
     /// Return the exit status of a `funcall`.
     ///
     /// It shouldn't be `FuncallExit::Return`.
-    FuncallExit status() const noexcept {
+    [[nodiscard]] FuncallExit status() const noexcept {
         return status_;
     }
 
@@ -337,11 +336,11 @@ public:
     ///
     /// - The `symbol()` is used to retrieve the `ERROR-SYMBOL` field of an error
     /// - The `data()` is used to retrieve the `DATA` field of an error
-    Value symbol() const noexcept {
+    [[nodiscard]] Value symbol() const noexcept {
         return sym_;
     }
 
-    Value data() const noexcept {
+    [[nodiscard]] Value data() const noexcept {
         return data_;
     }
     /// \}
@@ -387,11 +386,11 @@ public:
     ///
     /// - The `tag()` is used to retrieve the `TAG` field of an error
     /// - The `value()` is used to retrieve the `VALUE` field of an error
-    Value tag() const noexcept {
+    [[nodiscard]] Value tag() const noexcept {
         return sym_;
     }
 
-    Value value() const noexcept {
+    [[nodiscard]] Value value() const noexcept {
         return data_;
     }
     /// \}
@@ -416,7 +415,7 @@ public:
     explicit Env(emacs_env* env) noexcept : env_(env) {}
 
     /// Return the native handle of `emacs_env`
-    emacs_env* native() const noexcept {
+    [[nodiscard]] emacs_env* native() const noexcept {
         return env_;
     }
 
@@ -561,7 +560,6 @@ private:
 #endif
     }
 
-private:
     emacs_env* env_;
 };
 
