@@ -18,6 +18,7 @@
 #include <emacs-module.h>
 
 #include "expected.hpp"
+#include "overload.hpp"
 #include "requires.hpp"
 #include "void.hpp"
 
@@ -434,6 +435,36 @@ public:
     Expected<Value, Error> intern(const char* s) noexcept {
         const emacs_value val = YAPDF_EMACS_APPLY_CHECK(*this, intern, s);
         return Value(val, *this);
+    }
+
+    ///
+    template <typename F, typename... Args>
+    Expected<Value, Error> call(F f, Args&&... args) noexcept {
+        emacs_value symbol;
+        if constexpr (std::is_same_v<F, Value>) {
+            symbol = f.native();
+        } else if constexpr (std::is_same_v<F, const char*>) {
+            symbol = YAPDF_EMACS_APPLY_CHECK(*this, intern, f);
+        } else {
+        }
+
+        const auto to = Overload{
+            [&](const char* s) -> Expected<Value, Error> { return this->make<Value::Type::String>(s); },
+            [&](double x) -> Expected<Value, Error> { return this->make<Value::Type::Float>(x); },
+            [&](auto x) -> Expected<Value, Error> { return this->make<Value::Type::Int>(x); },
+            [](Value x) -> Expected<Value, Error> { return x; },
+        };
+        const Expected<Value, Error> xs[] = {to(std::forward<Args>(args))...};
+
+        emacs_value ys[sizeof...(args)];
+        for (std::size_t i = 0; i < std::size(ys); ++i) {
+            if (xs[i].hasError()) {
+                return Unexpected(xs[i].error());
+            }
+            ys[i] = xs[i].value().native();
+        }
+
+        return Value(YAPDF_EMACS_APPLY_CHECK(*this, funcall, symbol, sizeof...(args), ys), *this);
     }
 
     /// Create an Emacs Lisp value from native C++ types.

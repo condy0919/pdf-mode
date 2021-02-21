@@ -78,3 +78,11 @@ TEST_CASE("Conversion Between Lisp and Module Values") {
 
     }
 }
+
+TEST_CASE("Funcall") {
+    yapdf::emacs::Env e(env);
+    using yapdf::emacs::Value;
+
+    auto val = e.call("length", "abc");
+    REQUIRE_EQ(val.value().as<Value::Type::Int>().value(), 3);
+}
