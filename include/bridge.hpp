@@ -41,30 +41,6 @@ class Env;
 class Error;
 enum class FuncallExit;
 
-///
-class BigInt {
-public:
-    explicit BigInt(int sign) noexcept : sign_(sign) {}
-
-    BigInt(int sign, std::vector<emacs_limb_t> magnitude) noexcept : sign_(sign), magnitude_(std::move(magnitude)) {}
-
-    [[nodiscard]] int sign() const noexcept {
-        return sign_;
-    }
-
-    [[nodiscard]] std::size_t count() const noexcept {
-        return magnitude_.size();
-    }
-
-    [[nodiscard]] const emacs_limb_t* magnitude() const noexcept {
-        return magnitude_.data();
-    }
-
-private:
-    int sign_;
-    std::vector<emacs_limb_t> magnitude_;
-};
-
 /// A type that represents Lisp values.
 ///
 /// Values of this type can be copied around, but are lifetime-bound to the `Env` they come from.
@@ -78,7 +54,6 @@ public:
         Int,
         Float,
         Time,
-        BigInt,
     };
 
     Value(emacs_value val, Env& env) noexcept : val_(val), env_(env) {}
@@ -100,7 +75,6 @@ public:
     /// | `Type::Int`    | `std::intmax_t`            |
     /// | `Type::Float`  | `double`                   |
     /// | `Type::Time`   | `std::chrono::nanoseconds` |
-    /// | `Type::BigInt` | `yapdf::emacs::BigInt`     |
     ///
     /// # Int
     ///
@@ -122,12 +96,6 @@ public:
     ///
     /// If you need to deal with time values that not representable by `struct timespec`, or if you want higher
     /// precision, call the Lisp function `encode-time` and work with its return value.
-    ///
-    /// Available since Emacs 27.
-    ///
-    /// # BigInt
-    ///
-    ///
     ///
     /// Available since Emacs 27.
     template <Type type>
@@ -174,7 +142,6 @@ private:
     Expected<std::intmax_t, Error> as(std::integral_constant<Value::Type, Value::Type::Int>) const noexcept;
     Expected<double, Error> as(std::integral_constant<Value::Type, Value::Type::Float>) const noexcept;
     Expected<std::chrono::nanoseconds, Error> as(std::integral_constant<Value::Type, Value::Type::Time>) const noexcept;
-    Expected<BigInt, Error> as(std::integral_constant<Value::Type, Value::Type::BigInt>) const noexcept;
 
     emacs_value val_;
     Env& env_;
@@ -447,8 +414,6 @@ public:
     ///
     /// # Time
     ///
-    /// # BigInt
-    ///
     template <Value::Type type, typename... Args>
     Expected<Value, Error> make(Args&&... args) noexcept {
         return make(std::integral_constant<Value::Type, type>{}, std::forward<Args>(args)...);
@@ -552,14 +517,6 @@ private:
 #endif
     }
 
-    Expected<Value, Error> make(std::integral_constant<Value::Type, Value::Type::BigInt>, BigInt x) noexcept {
-#if EMACS_MAJOR_VERSION >= 27
-        return Value(YAPDF_EMACS_APPLY_CHECK(*this, make_big_integer, x.sign(), x.count(), x.magnitude()), *this);
-#else
-        __builtin_unreachable();
-#endif
-    }
-
     emacs_env* env_;
 };
 
@@ -579,20 +536,6 @@ Value::as(std::integral_constant<Value::Type, Value::Type::Time>) const noexcept
     const struct timespec ts = YAPDF_EMACS_APPLY_CHECK(env_, extract_time, val_);
     return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::seconds(ts.tv_sec) +
                                                                 std::chrono::nanoseconds(ts.tv_nsec));
-#else
-    __builtin_unreachable();
-#endif
-}
-
-inline Expected<BigInt, Error> Value::as(std::integral_constant<Value::Type, Value::Type::BigInt>) const noexcept {
-#if EMACS_MAJOR_VERSION >= 27
-    int sign;
-    std::ptrdiff_t count;
-    YAPDF_EMACS_APPLY_CHECK(env_, extract_big_integer, val_, &sign, &count, nullptr);
-
-    std::vector<emacs_limb_t> magnitude(count);
-    YAPDF_EMACS_APPLY_CHECK(env_, extract_big_integer, val_, &sign, &count, &magnitude[0]);
-    return BigInt(sign, std::move(magnitude));
 #else
     __builtin_unreachable();
 #endif
