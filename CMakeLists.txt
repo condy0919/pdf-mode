@@ -87,6 +87,7 @@ target_sources(yapdf
   PRIVATE
     src/lib.cpp
     src/bridge.cpp
+    src/unreachable.cpp
 )
 
 ### Obtain version information from Git
