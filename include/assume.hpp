@@ -20,6 +20,8 @@
 //!
 //! http://wg21.link/p1774r0
 //! https://clang.llvm.org/docs/LanguageExtensions.html#builtin-assume
+//!
+//! SPDX-License-Identifier: GPL-2.0-or-later
 
 #ifndef YAPDF_ASSUME_HPP_
 #define YAPDF_ASSUME_HPP_

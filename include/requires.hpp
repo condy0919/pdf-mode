@@ -1,4 +1,4 @@
-//! The REQUIRES facility macro
+//! The REQUIRES facility macro.
 //!
 //! SPDX-License-Identifier: GPL-2.0-or-later
 

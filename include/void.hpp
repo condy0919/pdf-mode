@@ -4,6 +4,9 @@
 //! meta-programming.
 //!
 //! Visit http://www.open-std.org/JTC1/SC22/WG21/docs/papers/2016/p0146r1.html for more information.
+//!
+//! SPDX-License-Identifier: GPL-2.0-or-later
+
 
 #ifndef YAPDF_VOID_HPP_
 #define YAPDF_VOID_HPP_
