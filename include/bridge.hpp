@@ -75,6 +75,8 @@ public:
         Float,
         String,
         Time,
+        Function,
+        ByteString,
     };
 
     /// Construct a new `Value` from emacs native types
@@ -142,6 +144,8 @@ public:
     /// Available since Emacs 27.
     template <Type type>
     auto as() const noexcept {
+        static_assert(type != Type::Function, "Can't convert lisp function to native C++ function");
+        static_assert(type != Type::ByteString, "Use Type::String instead");
         return as(std::integral_constant<Type, type>{});
     }
 
@@ -472,12 +476,14 @@ public:
         } else if constexpr (std::is_same_v<F, const char*>) {
             symbol = YAPDF_EMACS_APPLY_CHECK(*this, intern, f);
         } else {
+            YAPDF_UNREACHABLE("Unsupported function type");
         }
 
         const auto to = Overload{
-            [&](const char* s) -> Expected<Value, Error> { return this->make<Value::Type::String>(s); },
-            [&](double x) -> Expected<Value, Error> { return this->make<Value::Type::Float>(x); },
-            [&](auto x) -> Expected<Value, Error> { return this->make<Value::Type::Int>(x); },
+            [&](std::chrono::nanoseconds ns) -> Expected<Value, Error> { return make<Value::Type::Time>(ns); },
+            [&](const char* s) -> Expected<Value, Error> { return make<Value::Type::String>(s); },
+            [&](double x) -> Expected<Value, Error> { return make<Value::Type::Float>(x); },
+            [&](auto x) -> Expected<Value, Error> { return make<Value::Type::Int>(x); },
             [](Value x) -> Expected<Value, Error> { return x; },
         };
         const Expected<Value, Error> xs[] = {to(std::forward<Args>(args))...};
@@ -516,8 +522,6 @@ public:
     /// detect as many valid UTF-8 subsequence in `s` as possible and treat the rest as undecodable bytes, but you
     /// shouldn't rely on any specific behavior in this case.
     ///
-    /// Don't forget that `s` must be null-terminated.
-    ///
     /// The returned Lisp string will not contain any text properties. To create a string containing text properties,
     /// use `funcall` to call functions such as `propertize`.
     ///
@@ -526,7 +530,32 @@ public:
     /// extended Emacs characters that don't correspond to Unicode code points. To create such a Lisp string, call e.g.
     /// the function `string` and pass the desired character values as integers.
     ///
+    /// # ByteString
+    ///
+    /// Create a unibyte Lisp string object.
+    ///
+    /// It's similar to `String` but has no restrictions on the values of the bytes in the C string, and can be used to
+    /// pass binary data to Emacs in the form of a unibyte string.
+    ///
+    /// Emacs has two text ways to represent text in a string or buffer. These are called unibyte and multibyte. Each
+    /// string, and each buffer, uses one of these two representations. For most purposes, you can ignore the issue of
+    /// representations, because Emacs converts text between them as appropriate. Occasionally in Lisp programming you
+    /// will need to pay attention to the difference.
+    ///
+    /// In unibyte representation, each character occupies one byte and therefore the possible character codes range
+    /// from 0 to 255. Codes 0 through 127 are ASCII characters; the codes from 128 through 255 are used for one
+    /// non-ASCII character set (you can choose which character set by setting the variable nonascii-insert-offset).
+    ///
+    /// In multibyte representation, a character may occupy more than one byte, and as a result, the full range of Emacs
+    /// character codes can be stored. The first byte of a multibyte character is always in the range 128 through 159
+    /// (octal 0200 through 0237). These values are called leading codes. The second and subsequent bytes of a multibyte
+    /// character are always in the range 160 through 255 (octal 0240 through 0377); these values are trailing codes.
+    ///
+    /// Available since Emacs 28.
+    ///
     /// # Time
+    ///
+    /// Create an Emacs timestamp.
     ///
     /// Available since Emacs 27.
     template <Value::Type type, typename... Args>
@@ -544,15 +573,31 @@ public:
 #endif
 
 #if EMACS_MAJOR_VERSION >= 27
-    // This function processes pending input events. It returns `ProcessInputResult::Quit` if the user wants to quit or
-    // an error occurred while processing signals. In that case, we recommend that your module function aborts any
-    // on-going processing and returns as soon as possible. If the module code may continue running, it returns
-    // `ProcessInputResult::Continue`. The return value is `ProcessInputResult::Continue` if and only if there is no
-    // pending nonlocal exit in `env`. If the module continues after calling `processInput`, global state such as
-    // variable values and buffer content may have been modified in arbitrary ways.
+    /// Process pending input events.
+    ///
+    /// If the user wants to quit or an error occurred while processing signals, if returns `ProcessInputResult::Quit`.
+    /// In that case, we recommend that your module function aborts any on-going processing and returns as soon as
+    /// possible. If the module code may continue running, it returns `ProcessInputResult::Continue`. The return value
+    /// is `ProcessInputResult::Continue` if and only if there is no pending nonlocal exit in `env`. If the module
+    /// continues after calling `processInput`, global state such as variable values and buffer content may have been
+    /// modified in arbitrary ways.
     ProcessInputResult processInput() noexcept {
         const emacs_process_input_result status = YAPDF_EMACS_APPLY(*this, process_input);
         return static_cast<ProcessInputResult>(status);
+    }
+#endif
+
+#if EMACS_MAJOR_VERSION >= 28
+    /// Open a channel to an existing pipe process.
+    ///
+    /// `process` must refer to an existing pipe process created by `make-pipe-process`. If successful, the return value
+    /// will be a new file descriptor that you can use to write to the pipe. Unlike all other module function, you can
+    /// use the returned file descriptor from arbitrary threads, even if no module environment is active. You can use
+    /// the `write` function to write to the file descriptor. Once done, close the file descriptor using `close`.
+    ///
+    /// \since Emacs 28
+    Expected<int, Error> openChannel(Value process) noexcept {
+        return YAPDF_EMACS_APPLY_CHECK(*this, open_channel, process.native());
     }
 #endif
 
@@ -659,6 +704,20 @@ private:
 #endif
     }
 
+    Expected<Value, Error> make(std::integral_constant<Value::Type, Value::Type::ByteString>, const char* s,
+                                std::size_t len) noexcept {
+#if EMACS_MAJOR_VERSION >= 28
+        return Value(YAPDF_EMACS_APPLY_CHECK(*this, make_unibyte_string, s, len), *this);
+#else
+        YAPDF_UNREACHABLE("make_unibyte_string: unsupported on current Emacs version");
+#endif
+    }
+
+    Expected<Value, Error> make(std::integral_constant<Value::Type, Value::Type::ByteString> tag,
+                                const std::string& s) noexcept {
+        return make(tag, s.c_str(), s.size());
+    }
+
     emacs_env* env_;
 };
 
@@ -740,9 +799,6 @@ public:
         // return Value(this, YAPDF_EMACS_APPLY(env_, make_function, 0, 0, nullptr, "docstring", nullptr));
     }
 
-    // function register
-    void funcall();
-
 #if EMACS_MAJOR_VERSION >= 28
     // void (*(*EMACS_ATTRIBUTE_NONNULL (1)
     //             get_function_finalizer) (emacs_env *env,
@@ -752,14 +808,6 @@ public:
     //   void (*set_function_finalizer) (emacs_env *env, emacs_value arg,
     //                                   void (*fin) (void *) EMACS_NOEXCEPT)
     //     EMACS_ATTRIBUTE_NONNULL (1);
-
-    //   int (*open_channel) (emacs_env *env, emacs_value pipe_process)
-    //     EMACS_ATTRIBUTE_NONNULL (1);
-
-    //   /* Create a unibyte Lisp string from a string.  */
-    //   emacs_value (*make_unibyte_string) (emacs_env *env,
-    // 				      const char *str, ptrdiff_t len)
-    //     EMACS_ATTRIBUTE_NONNULL(1, 2);
 #endif
 
 private:
