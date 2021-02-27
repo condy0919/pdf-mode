@@ -20,12 +20,13 @@
 #include "expected.hpp"
 #include "overload.hpp"
 #include "requires.hpp"
+#include "unreachable.hpp"
 #include "void.hpp"
 
 #define YAPDF_EMACS_APPLY(env, f, ...) ((env).native())->f((env).native(), ##__VA_ARGS__)
 #define YAPDF_EMACS_APPLY_CHECK(env, f, ...)                                                                           \
     ({                                                                                                                 \
-        const auto ret = YAPDF_EMACS_APPLY((env), f, ##__VA_ARGS__);                                                   \
+        const auto ret = ::yapdf::internal::return_((YAPDF_EMACS_APPLY((env), f, ##__VA_ARGS__), ::yapdf::Void{}));    \
         const auto status = (env).checkError();                                                                        \
         switch (status) {                                                                                              \
         case ::yapdf::emacs::FuncallExit::Return:                                                                      \
@@ -41,7 +42,20 @@
     })
 
 namespace yapdf {
+namespace internal {
+template <typename T>
+inline T&& return_(T&& x) {
+    return std::forward<T>(x);
+}
+} // namespace internal
+
 namespace emacs {
+// Tricky hack so that `YAPDF_EMACS_APPLY_CHECK` can handle emacs module functions that return void
+template <class T>
+inline T&& operator,(T&& x, Void) noexcept {
+    return std::forward<T>(x);
+}
+
 // forward
 class Env;
 class Error;
@@ -130,6 +144,28 @@ public:
     auto as() const noexcept {
         return as(std::integral_constant<Type, type>{});
     }
+
+#if EMACS_MAJOR_VERSION >= 28
+    Expected<Void, Error> interact(const char* spec) noexcept;
+// By default, module functions created by ‘make_function’ are not
+// interactive.  To make them interactive, you can use the following
+// function.
+
+//  -- Function: void make_interactive (emacs_env *ENV, emacs_value
+//           FUNCTION, emacs_value SPEC)
+//      This function, which is available since Emacs 28, makes the
+//      function FUNCTION interactive using the interactive specification
+//      SPEC.  Emacs interprets SPEC like the argument to the ‘interactive’
+//      form.  *note Using Interactive::, and *note Interactive Codes::.
+//      FUNCTION must be an Emacs module function returned by
+//      ‘make_function’.
+
+//    Note that there is no native module support for retrieving the
+// interactive specification of a module function.  Use the function
+// ‘interactive-form’ for that.  *note Using Interactive::.  It is not
+// possible to make a module function non-interactive once you have made it
+// interactive using ‘make_interactive’.
+#endif
 
     /// Check whether the Lisp object is not `nil`.
     ///
@@ -517,6 +553,19 @@ public:
     }
 #endif
 
+#if EMACS_MAJOR_VERSION >= 27
+    // This function processes pending input events. It returns `ProcessInputResult::Quit` if the user wants to quit or
+    // an error occurred while processing signals. In that case, we recommend that your module function aborts any
+    // on-going processing and returns as soon as possible. If the module code may continue running, it returns
+    // `ProcessInputResult::Continue`. The return value is `ProcessInputResult::Continue` if and only if there is no
+    // pending nonlocal exit in `env`. If the module continues after calling `processInput`, global state such as
+    // variable values and buffer content may have been modified in arbitrary ways.
+    ProcessInputResult processInput() noexcept {
+        const emacs_process_input_result status = YAPDF_EMACS_APPLY(*this, process_input);
+        return static_cast<ProcessInputResult>(status);
+    }
+#endif
+
     /// Obtain the last function exit type for an environment.
     ///
     /// It never fails and always returns normally.
@@ -616,7 +665,7 @@ private:
         };
         return Value(YAPDF_EMACS_APPLY_CHECK(*this, make_time, ts), *this);
 #else
-        __builtin_unreachable();
+        YAPDF_UNREACHABLE("make_time: unsupported on current Emacs version");
 #endif
     }
 
@@ -642,7 +691,7 @@ inline Expected<std::string, Error> Value::as(std::integral_constant<Value::Type
     std::string s(len, '\0');
     YAPDF_EMACS_APPLY_CHECK(env_, copy_string_contents, val_, &s[0], &len);
 
-    // remove the trailing '\0's
+    // remove the trailing '\0'
     if (!s.empty()) {
         assert(s.back() == '\0');
         s.pop_back();
@@ -657,7 +706,7 @@ Value::as(std::integral_constant<Value::Type, Value::Type::Time>) const noexcept
     return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::seconds(ts.tv_sec) +
                                                                 std::chrono::nanoseconds(ts.tv_nsec));
 #else
-    __builtin_unreachable();
+    YAPDF_UNREACHABLE("extract_time: unsupported on current Emacs version");
 #endif
 }
 } // namespace emacs
@@ -704,11 +753,6 @@ public:
     // function register
     void funcall();
 
-#if EMACS_MAJOR_VERSION >= 27
-    // enum emacs_process_input_result (*process_input) (emacs_env *env)
-    //     EMACS_ATTRIBUTE_NONNULL (1);
-#endif
-
 #if EMACS_MAJOR_VERSION >= 28
     // void (*(*EMACS_ATTRIBUTE_NONNULL (1)
     //             get_function_finalizer) (emacs_env *env,
@@ -720,12 +764,6 @@ public:
     //     EMACS_ATTRIBUTE_NONNULL (1);
 
     //   int (*open_channel) (emacs_env *env, emacs_value pipe_process)
-    //     EMACS_ATTRIBUTE_NONNULL (1);
-
-    void makeInteractive(Value f, const char* spec) {}
-
-    //   void (*make_interactive) (emacs_env *env, emacs_value function,
-    //                             emacs_value spec)
     //     EMACS_ATTRIBUTE_NONNULL (1);
 
     //   /* Create a unibyte Lisp string from a string.  */
