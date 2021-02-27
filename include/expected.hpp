@@ -194,9 +194,9 @@
     ({                                                                                                                 \
         const auto result = (exp);                                                                                     \
         if (YAPDF_UNLIKELY(result.hasError())) {                                                                       \
-            return std::move(result.error());                                                                          \
+            return Unexpected(std::move(result.error()));                                                              \
         }                                                                                                              \
-        std::move(result.value())                                                                                      \
+        std::move(result.value());                                                                                     \
     })
 
 namespace yapdf {

@@ -50,8 +50,8 @@ inline T&& return_(T&& x) {
 } // namespace internal
 
 namespace emacs {
-// Tricky hack so that `YAPDF_EMACS_APPLY_CHECK` can handle emacs module functions that return void
-template <class T>
+// HACK: Trick to allow `YAPDF_EMACS_APPLY_CHECK` to handle emacs module functions that return void
+template <typename T>
 inline T&& operator,(T&& x, Void) noexcept {
     return std::forward<T>(x);
 }
@@ -146,25 +146,15 @@ public:
     }
 
 #if EMACS_MAJOR_VERSION >= 28
-    Expected<Void, Error> interact(const char* spec) noexcept;
-// By default, module functions created by ‘make_function’ are not
-// interactive.  To make them interactive, you can use the following
-// function.
-
-//  -- Function: void make_interactive (emacs_env *ENV, emacs_value
-//           FUNCTION, emacs_value SPEC)
-//      This function, which is available since Emacs 28, makes the
-//      function FUNCTION interactive using the interactive specification
-//      SPEC.  Emacs interprets SPEC like the argument to the ‘interactive’
-//      form.  *note Using Interactive::, and *note Interactive Codes::.
-//      FUNCTION must be an Emacs module function returned by
-//      ‘make_function’.
-
-//    Note that there is no native module support for retrieving the
-// interactive specification of a module function.  Use the function
-// ‘interactive-form’ for that.  *note Using Interactive::.  It is not
-// possible to make a module function non-interactive once you have made it
-// interactive using ‘make_interactive’.
+    /// By default, module functions created by `make_function` are not interactive. To make theme interactive, you can
+    /// use `interactive` to make function interactive using the `interactive` specification. Note that there is no
+    /// native module support for retrieving the interactive specification of a module function. Use the function
+    /// `interactive-form` for that. And it is not possible to make a module function non-interactive once you have made
+    /// it interactive using this function.
+    ///
+    /// \see the Lisp interactive function
+    /// \since Emacs 28
+    Expected<Void, Error> interactive(const char* spec) noexcept;
 #endif
 
     /// Check whether the Lisp object is not `nil`.
