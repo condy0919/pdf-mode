@@ -23,6 +23,14 @@ Value::VectorProxy Value::operator[](std::size_t idx) noexcept {
     return Value::VectorProxy(idx, val_, env_);
 }
 
+auto Value::finalizer() const noexcept -> void (*)(void*) EMACS_NOEXCEPT {
+    return YAPDF_EMACS_APPLY(env_, get_user_finalizer, val_);
+}
+
+void Value::finalizer(void (*fin)(void*) EMACS_NOEXCEPT) noexcept {
+    YAPDF_EMACS_APPLY(env_, set_user_finalizer, val_, fin);
+}
+
 #if EMACS_MAJOR_VERSION >= 28
 Expected<Void, Error> Value::interactive(const char* spec) noexcept {
     const Value s = YAPDF_TRY(env_.make<Value::Type::String>(spec));

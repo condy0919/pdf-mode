@@ -117,6 +117,7 @@ public:
         Time,
         Function,
         ByteString,
+        UserPtr,
     };
 
     /// Construct a new `Value` from emacs native types
@@ -148,12 +149,13 @@ public:
     ///
     /// The relationship between the `type` and native C++ type can be described with the following table:
     ///
-    /// | `type`         | C++ type                   |
-    /// |----------------|----------------------------|
-    /// | `Type::Int`    | `std::intmax_t`            |
-    /// | `Type::Float`  | `double`                   |
-    /// | `Type::String` | `std::string`              |
-    /// | `Type::Time`   | `std::chrono::nanoseconds` |
+    /// | `type`          | C++ type                   |
+    /// |-----------------|----------------------------|
+    /// | `Type::Int`     | `std::intmax_t`            |
+    /// | `Type::Float`   | `double`                   |
+    /// | `Type::String`  | `std::string`              |
+    /// | `Type::Time`    | `std::chrono::nanoseconds` |
+    /// | `Type::UserPtr` | `void*`                    |
     ///
     /// # Int
     ///
@@ -196,12 +198,34 @@ public:
     /// precision, call the Lisp function `encode-time` and work with its return value.
     ///
     /// Available since Emacs 27.
+    ///
+    /// # UserPtr
+    ///
+    /// Return the user pointer embedded in the user pointer object.
+    ///
+    /// If it doesn't represent a user pointer object, Emacs will signal an error of type `wrong-type-argument`.
     template <Type type>
     auto as() const noexcept {
         static_assert(type != Type::Function, "Can't convert lisp function to native C++ function");
         static_assert(type != Type::ByteString, "Use Type::String instead");
         return as(std::integral_constant<Type, type>{});
     }
+
+    /// Return the user pointer finalizer embedded in the user pointer object; this is the fin value that you have
+    /// passed to `make_user_ptr`. If it doesn't have a custom finalizer, Emacs return `nullptr`.
+    ///
+    /// Make sure that `Value` represents a user pointer object, or Emacs will signal an error of type
+    /// `wrong-type-argument`.
+    [[nodiscard]] auto finalizer() const noexcept -> void (*)(void*) EMACS_NOEXCEPT;
+
+    /// set_user_finalizer changes the user pointer finalizer wrapped by value to fin. value must be a user pointer
+    /// object, otherwise Emacs signals an error of type wrong-type-argument. fin can be NULL if value doesn’t need
+    /// custom finalization.
+    ///
+    ///
+    /// Make sure that `Value` represents a user pointer object, or Emacs will signal an error of type
+    /// `wrong-type-argument`.
+    void finalizer(void (*fin)(void*) EMACS_NOEXCEPT) noexcept;
 
 #if EMACS_MAJOR_VERSION >= 28
     /// Make function interactive.
@@ -216,11 +240,14 @@ public:
     /// \since Emacs 28
     Expected<Void, Error> interactive(const char* spec) noexcept;
 
+
+    // TODO
     // void (*(*EMACS_ATTRIBUTE_NONNULL (1)
     //             get_function_finalizer) (emacs_env *env,
     //                                      emacs_value arg)) (void *)
     //                                      EMACS_NOEXCEPT;
 
+    // TODO
     //   void (*set_function_finalizer) (emacs_env *env, emacs_value arg,
     //                                   void (*fin) (void *) EMACS_NOEXCEPT)
     //     EMACS_ATTRIBUTE_NONNULL (1);
@@ -251,7 +278,7 @@ public:
     ///
     /// # Note
     ///
-    /// Two `Value` objects that are different in the C sense might still represent the same Lisp object, so you must
+    /// Two `Value` objects that are different in the C++ sense might still represent the same Lisp object, so you must
     /// always call `operator==` to check for equality.
     bool operator==(const Value& rhs) const noexcept;
 
@@ -266,6 +293,7 @@ private:
     Expected<double, Error> as(std::integral_constant<Value::Type, Value::Type::Float>) const noexcept;
     Expected<std::string, Error> as(std::integral_constant<Value::Type, Value::Type::String>) const noexcept;
     Expected<std::chrono::nanoseconds, Error> as(std::integral_constant<Value::Type, Value::Type::Time>) const noexcept;
+    Expected<void*, Error> as(std::integral_constant<Value::Type, Value::Type::UserPtr>) const noexcept;
 
     emacs_value val_;
     Env& env_;
@@ -572,7 +600,7 @@ public:
     ///
     /// # Float
     ///
-    /// Create an Emacs floating-point number from a C floating-point value.
+    /// Create an Emacs floating-point number from a C++ floating-point value.
     ///
     /// # String
     ///
@@ -595,12 +623,38 @@ public:
     /// extended Emacs characters that don't correspond to Unicode code points. To create such a Lisp string, call e.g.
     /// the function `string` and pass the desired character values as integers.
     ///
+    /// # UserPtr
+    ///
+    /// Create a user pointer Lisp object.
+    ///
+    /// When dealing with C++ code, it's often useful to be able to store arbitrary C++ objects inside Emacs Lisp
+    /// objects. For this purpose the module API provides a unique Lisp datatype called user pointer. A user pointer
+    /// object encapsulates a C++ pointer value and an optional finalizer function. Apart from storing it, Emacs leaves
+    /// the pointer value alone. Even though it's a pointer, there's no requirement that it points to valid memory. If
+    /// you provide a finalizer, Emacs will call it when the user pointer object is garbage collected. Note that Emacs's
+    /// garbage collection is nondeterministic: it might happen long after an object ceases to be used or not at all.
+    /// Therefore you can't use user pointer finalizers for finalization that has to be prompt or deterministic; it's
+    /// best to use finalizers only for clean-ups that can be delayed arbitrarily without bad side effects, such as
+    /// freeing memory. If you store a resource handle in a user pointer that requires deterministic finalization, you
+    /// should use a different mechanism such as unwind-protect. Finalizers can't interact with Emacs in any way; they
+    /// also can't fail.
+    ///
+    /// If fin is not `nullptr`, it must point to a finalizer function with the following signature:
+    ///
+    /// ``` cpp
+    /// void fin (void* ptr) EMACS_NOEXCEPT;
+    /// ```
+    ///
+    /// When the new user pointer object is being garbage collected, Emacs calls fin with ptr as argument. The finalizer
+    /// function may contain arbitrary code, but it must not interact with Emacs in any way or exit nonlocally. It
+    /// should finish as quickly as possible because delaying garbage collection blocks Emacs completely.
+    ///
     /// # ByteString
     ///
     /// Create a unibyte Lisp string object.
     ///
-    /// It's similar to `String` but has no restrictions on the values of the bytes in the C string, and can be used to
-    /// pass binary data to Emacs in the form of a unibyte string.
+    /// It's similar to `String` but has no restrictions on the values of the bytes in the C++ string, and can be used
+    /// to pass binary data to Emacs in the form of a unibyte string.
     ///
     /// Emacs has two text ways to represent text in a string or buffer. These are called unibyte and multibyte. Each
     /// string, and each buffer, uses one of these two representations. For most purposes, you can ignore the issue of
@@ -620,7 +674,7 @@ public:
     ///
     /// # Time
     ///
-    /// Create an Emacs timestamp.
+    /// Create an Emacs timestamp as a pair `(TICKS . HZ)`.
     ///
     /// Available since Emacs 27.
     template <Value::Type type, typename... Args>
@@ -708,7 +762,7 @@ public:
     /// `throwError()` is the module equivalent of the Lisp `throw()` function: it causes Emacs to perform a nonlocal
     /// jump to a catch block tagged with `tag`; the catch value will be `val`.
     ///
-    /// `throwError()`, like all other environment functions, actually returns normally when seen as a C function.
+    /// `throwError()`, like all other environment functions, actually returns normally when seen as a C++ function.
     /// Rather, it causes Emacs to throw to the catch block once you return from the current module function or module
     /// initialization function. Therefore you should typically return quickly after requesting a jump with this
     /// function. If there was already a nonlocal exit pending when calling `throwError()`, the function does nothing;
@@ -720,7 +774,7 @@ public:
     /// `signalError()` is the module equivalent of the Lisp `signal()` function: it causes Emacs to signal an error of
     /// type `sym` with error data `data`. `data` should be a list.
     ///
-    /// `signalError()`, like all other environment functions, actually returns normally when seen as a C function.
+    /// `signalError()`, like all other environment functions, actually returns normally when seen as a C++ function.
     /// Rather, it causes Emacs to signal an error once you return from the current module function or module
     /// initialization function. Therefore you should typically return quickly after signaling an error with this
     /// function. If there was already a nonlocal exit pending when calling `signalError()`, the function does nothing;
@@ -788,6 +842,31 @@ private:
         return make(tag, s.c_str(), s.size());
     }
 
+    Expected<Value, Error> make(std::integral_constant<Value::Type, Value::Type::UserPtr>, void* p,
+                                void (*fin)(void*) EMACS_NOEXCEPT = nullptr) noexcept {
+        return Value(YAPDF_EMACS_APPLY_CHECK(*this, make_user_ptr, fin, p), *this);
+    }
+
+    // TODO
+    // emacs_value make_function (emacs_env *env,
+    // ptrdiff_t min_arity, ptrdiff_t max_arity,
+    // emacs_subr function, const char *documentation,
+    // void *data);
+    //
+    // emacs_value (*make_function) (emacs_env *env,
+    // 				ptrdiff_t min_arity,
+    // 				ptrdiff_t max_arity,
+    // 				emacs_value (*func) (emacs_env *env,
+    //                                                      ptrdiff_t nargs,
+    //                                                      emacs_value* args,
+    //                                                      void *data)
+    // 				  EMACS_NOEXCEPT
+    //                                   EMACS_ATTRIBUTE_NONNULL(1),
+    // 				const char *docstring,
+    // 				void *data)
+    //
+    // Expected<Value, Error> make(std::integral_constant<Value::Type, Value::Type::Function>
+
     emacs_env* env_;
 };
 
@@ -828,27 +907,21 @@ Value::as(std::integral_constant<Value::Type, Value::Type::Time>) const noexcept
     YAPDF_UNREACHABLE("extract_time: unsupported on current Emacs version");
 #endif
 }
+
+inline Expected<void*, Error> Value::as(std::integral_constant<Value::Type, Value::Type::UserPtr>) const noexcept {
+    return YAPDF_EMACS_APPLY_CHECK(env_, get_user_ptr, val_);
+}
 } // namespace emacs
 
 /// An Emacs instance
 class Emacs {
     class Value {
-        void make_user_ptr();
-        void get_user_ptr();
         void set_user_ptr();
-
-        void get_user_finalizer();
-        void set_user_finalizer();
     };
 
     // memory management
     Value makeGlobalRef(Value value);
     void freeGlobalRef(Value value);
-
-    // TODO
-    Value makeFunction() {
-        // return Value(this, YAPDF_EMACS_APPLY(env_, make_function, 0, 0, nullptr, "docstring", nullptr));
-    }
 };
 } // namespace yapdf
 

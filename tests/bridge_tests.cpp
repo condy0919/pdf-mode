@@ -51,10 +51,6 @@ TEST_CASE("Conversion Between Lisp and Module Values") {
         }
     }
 
-    SUBCASE("Time") {
-
-    }
-
     SUBCASE("String") {
         // c++ -> lisp
         auto val = e.make<Value::Type::String>("foobarbaz").value();
@@ -69,14 +65,71 @@ TEST_CASE("Conversion Between Lisp and Module Values") {
         auto zeros = e.make<Value::Type::String>("\0\0", 2).value();
         REQUIRE_EQ(zeros.as<Value::Type::String>().value(), std::string("\0\0", 2));
 
+        // a nonnull-terminated string
+        const char s[3] = {'a', 'b', 'c'};
+        auto nt = e.make<Value::Type::String>(s, 3).value();
+        REQUIRE_EQ(nt.as<Value::Type::String>().value(), "abc");
+
         // an empty string
         auto empty = e.make<Value::Type::String>("").value();
         REQUIRE_EQ(empty.as<Value::Type::String>().value(), "");
+
+        // 你好 in gb2312, it should fail
+        const std::uint8_t hello[] = {0xe3, 0xc4, 0xc3, 0xba};
+        auto result = e.make<Value::Type::String>((const char*)hello, 4);
+        REQUIRE(result.hasError());
+        REQUIRE_EQ(result.error().status(), yapdf::emacs::FuncallExit::Signal);
     }
 
-    SUBCASE("Vector") {
+    SUBCASE("Vector") {}
 
+    SUBCASE("UserPtr") {}
+
+    SUBCASE("Function") {}
+
+#if EMACS_MAJOR_VERSION >= 27
+    SUBCASE("Time") {
+        // c++ -> lisp
+        auto val = e.make<Value::Type::Time>(std::chrono::seconds(1), std::chrono::nanoseconds(50)).value();
+
+        // (type-of '(TICKS . HZ)) -> 'cons
+        REQUIRE_EQ(val.typeOf(), e.intern("cons").value());
+
+        // lisp -> c++
+        REQUIRE_EQ(val.as<Value::Type::Time>().value(), std::chrono::seconds(1) + std::chrono::nanoseconds(50));
     }
+#endif
+
+#if EMACS_MAJOR_VERSION >= 28
+    SUBCASE("ByteString") {
+        // c++ -> lisp
+        auto val = e.make<Value::Type::ByteString>("foobarbaz").value();
+
+        // (type-of "foobarbaz") -> 'string
+        REQUIRE_EQ(val.typeOf(), e.intern("string").value());
+
+        // lisp -> c++
+        REQUIRE_EQ(val.as<Value::Type::String>().value(), "foobarbaz");
+
+        // a string with two '\0's
+        auto zeros = e.make<Value::Type::ByteString>("\0\0", 2).value();
+        REQUIRE_EQ(zeros.as<Value::Type::String>().value(), std::string("\0\0", 2));
+
+        // a nonnull-terminated string
+        const char s[3] = {'a', 'b', 'c'};
+        auto nt = e.make<Value::Type::ByteString>(s, 3).value();
+        REQUIRE_EQ(nt.as<Value::Type::String>().value(), "abc");
+
+        // an empty string
+        auto empty = e.make<Value::Type::ByteString>("").value();
+        REQUIRE_EQ(empty.as<Value::Type::String>().value(), "");
+
+        // 你好 in gb2312
+        const std::uint8_t hello[] = {0xe3, 0xc4, 0xc3, 0xba};
+        auto hi = e.make<Value::Type::ByteString>((const char*)hello, 4).value();
+        REQUIRE_EQ(hi.as<Value::Type::String>().value(), std::string("\xe3\xc4\xc3\xba", 4));
+    }
+#endif
 }
 
 TEST_CASE("Funcall") {
