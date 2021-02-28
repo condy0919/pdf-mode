@@ -2,14 +2,33 @@
 
 namespace yapdf {
 namespace emacs {
+Value::VectorProxy& Value::VectorProxy::operator=(Value v) noexcept {
+    YAPDF_EMACS_APPLY(env_, vec_set, val_, idx_, v.native());
+    return *this;
+}
+
+Value::VectorProxy::operator Value() const noexcept {
+    return Value(YAPDF_EMACS_APPLY(env_, vec_get, val_, idx_), env_);
+}
+
 Value Value::typeOf() const noexcept {
     return Value(YAPDF_EMACS_APPLY(env_, type_of, val_), env_);
 }
 
+std::size_t Value::size() const noexcept {
+    return YAPDF_EMACS_APPLY(env_, vec_size, val_);
+}
+
+Value::VectorProxy Value::operator[](std::size_t idx) noexcept {
+    return Value::VectorProxy(idx, val_, env_);
+}
+
+#if EMACS_MAJOR_VERSION >= 28
 Expected<Void, Error> Value::interactive(const char* spec) noexcept {
     const Value s = YAPDF_TRY(env_.make<Value::Type::String>(spec));
     return YAPDF_EMACS_APPLY_CHECK(env_, make_interactive, val_, s.native());
 }
+#endif
 
 Value::operator bool() const noexcept {
     return YAPDF_EMACS_APPLY(env_, is_not_nil, val_);

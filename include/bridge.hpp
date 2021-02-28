@@ -69,7 +69,47 @@ enum class FuncallExit;
 /// calling back into the Lisp runtime.
 class Value {
 public:
+    /// A vector proxy type to `Value` to provide vector-like operations.
     ///
+    /// # Example
+    ///
+    /// ``` cpp
+    /// Value vec;
+    ///
+    /// vec[10] = 1;
+    /// const Value v = vec[11];
+    /// ```
+    class VectorProxy {
+    public:
+        VectorProxy(std::size_t idx, emacs_value val, Env& env) noexcept : idx_(idx), val_(val), env_(env) {}
+
+        /// vec_set sets the index-th element of the vector vec to value. index is zero-based. If vec is not a Lisp
+        /// vector, Emacs signals an error of type wrong-type-argument. If index is negative or not less than the number
+        /// of elements in vec, Emacs signals an error of type args-out-of-range.
+
+        /// Set the index-th element of the vector to v.
+        ///
+        /// If index is not less than the number of elements in vector, Emacs will signal an error of type
+        /// `args-out-of-range`.
+        ///
+        /// \see Value::operator[]
+        VectorProxy& operator=(Value v) noexcept;
+
+        /// Return the index-th element of the vector.
+        ///
+        /// If index is not less than the number of elements in vector, Emacs will signal an error of type
+        /// `args-out-of-range`.
+        ///
+        /// \see Value::operator[]
+        operator Value() const noexcept;
+
+    private:
+        std::size_t idx_;
+        emacs_value val_;
+        Env& env_;
+    };
+
+    /// Types that a Lisp value can be represented
     enum class Type {
         Int,
         Float,
@@ -89,6 +129,20 @@ public:
 
     /// Return the type of a Lisp symbol. It corresponds exactly to the Lisp `type-of` function.
     [[nodiscard]] Value typeOf() const noexcept;
+
+    /// Return the number of elements in the vector.
+    ///
+    /// Make sure that `Value` represents a Lisp vector, or Emacs will signal an error of type `wrong-type-argument`.
+    [[nodiscard]] std::size_t size() const noexcept;
+
+    /// Make `Value` vector-like.
+    ///
+    /// Make sure that `Value` represents a Lisp vector, or Emacs will signal an error of type `wrong-type-argument`. If
+    /// idx is not less than the number of elements in vector, Emacs will signal an error of type `args-out-of-range` in
+    /// further operations.
+    ///
+    /// \see VectorProxy
+    VectorProxy operator[](std::size_t idx) noexcept;
 
     /// Convert from Emacs value to native C++ types.
     ///
@@ -150,6 +204,8 @@ public:
     }
 
 #if EMACS_MAJOR_VERSION >= 28
+    /// Make function interactive.
+    ///
     /// By default, module functions created by `make_function` are not interactive. To make theme interactive, you can
     /// use `interactive` to make function interactive using the `interactive` specification. Note that there is no
     /// native module support for retrieving the interactive specification of a module function. Use the function
@@ -159,6 +215,15 @@ public:
     /// \see the Lisp interactive function
     /// \since Emacs 28
     Expected<Void, Error> interactive(const char* spec) noexcept;
+
+    // void (*(*EMACS_ATTRIBUTE_NONNULL (1)
+    //             get_function_finalizer) (emacs_env *env,
+    //                                      emacs_value arg)) (void *)
+    //                                      EMACS_NOEXCEPT;
+
+    //   void (*set_function_finalizer) (emacs_env *env, emacs_value arg,
+    //                                   void (*fin) (void *) EMACS_NOEXCEPT)
+    //     EMACS_ATTRIBUTE_NONNULL (1);
 #endif
 
     /// Check whether the Lisp object is not `nil`.
@@ -564,9 +629,14 @@ public:
     }
 
 #if EMACS_MAJOR_VERSION >= 26
-    /// Return `true` if the user wants to quit by hitting <kbd>C-g</kbd>. In that case, you should return to Emacs as
-    /// soon as possible, potentially aborting long-running operations. When a quit is pending after return from a
-    /// module function, Emacs quits without taking the result value or a possible pending nonlocal exit into account.
+    /// Return `true` if the user wants to quit by hitting <kbd>C-g</kbd>.
+    ///
+    /// In that case, you should return to Emacs as soon as possible, potentially aborting long-running operations. When
+    /// a quit is pending after return from a module function, Emacs quits without taking the result value or a possible
+    /// pending nonlocal exit into account.
+    ///
+    /// If your module includes potentially long-running code, it's a good practice to check from time to time in that
+    /// code whether the user wants to quit.
     bool shouldQuit() noexcept {
         return YAPDF_EMACS_APPLY(*this, should_quit);
     }
@@ -762,33 +832,14 @@ Value::as(std::integral_constant<Value::Type, Value::Type::Time>) const noexcept
 
 /// An Emacs instance
 class Emacs {
-    friend class Value;
-
-public:
-    /// An Emacs Lisp value
     class Value {
-        friend class Emacs;
-
-    public:
         void make_user_ptr();
         void get_user_ptr();
         void set_user_ptr();
 
         void get_user_finalizer();
         void set_user_finalizer();
-
-        void vec_get();
-        void vec_set();
-        void vec_size();
-
-    private:
-        Value(Emacs* emacs, emacs_value value) : emacs_(emacs), value_(value) {}
-
-        Emacs* emacs_;
-        emacs_value value_;
     };
-
-    Emacs(emacs_env* env) : env_(env) {}
 
     // memory management
     Value makeGlobalRef(Value value);
@@ -798,20 +849,6 @@ public:
     Value makeFunction() {
         // return Value(this, YAPDF_EMACS_APPLY(env_, make_function, 0, 0, nullptr, "docstring", nullptr));
     }
-
-#if EMACS_MAJOR_VERSION >= 28
-    // void (*(*EMACS_ATTRIBUTE_NONNULL (1)
-    //             get_function_finalizer) (emacs_env *env,
-    //                                      emacs_value arg)) (void *)
-    //                                      EMACS_NOEXCEPT;
-
-    //   void (*set_function_finalizer) (emacs_env *env, emacs_value arg,
-    //                                   void (*fin) (void *) EMACS_NOEXCEPT)
-    //     EMACS_ATTRIBUTE_NONNULL (1);
-#endif
-
-private:
-    emacs_env* env_;
 };
 } // namespace yapdf
 
