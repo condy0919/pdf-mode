@@ -81,7 +81,40 @@ TEST_CASE("Conversion Between Lisp and Module Values") {
         REQUIRE_EQ(result.error().status(), yapdf::emacs::FuncallExit::Signal);
     }
 
-    SUBCASE("Vector") {}
+    SUBCASE("Vector") {
+        // (vector 1 "foo" 1.2) -> [1 "foo" 1.2]
+        auto val = e.call("vector", 1, "foo", 1.2).value();
+
+        // (type-of vec) -> 'vector
+        REQUIRE_EQ(val.typeOf(), e.intern("vector").value());
+
+        // (length [1 "foo" 1.2]) -> 3
+        REQUIRE_EQ(val.size(), 3);
+
+        // vec[0] == 1
+        REQUIRE_EQ(Value(val[0]).as<Value::Type::Int>().value(), 1);
+
+        // vec[1] == "foo"
+        REQUIRE_EQ(Value(val[1]).as<Value::Type::String>().value(), "foo");
+
+        // vec[2] == 1.2
+        REQUIRE_EQ(Value(val[2]).as<Value::Type::Float>().value(), doctest::Approx(1.2));
+
+        // (eq vec[1] "foo") -> false
+        REQUIRE_NE(Value(val[1]), e.make<Value::Type::String>("foo").value());
+
+        // (equal vec[1] "foo") -> true
+        REQUIRE(e.call("equal", Value(val[1]), "foo").value());
+
+        // (equal vec[1] "bar") -> false
+        REQUIRE_FALSE(e.call("equal", Value(val[1]), "bar").value());
+
+        // (aset vec 1 "bar")
+        val[1] = e.make<Value::Type::String>("bar").value();
+
+        // Now (equal vec[1] "bar") -> true
+        REQUIRE(e.call("equal", Value(val[1]), "bar").value());
+    }
 
     SUBCASE("UserPtr") {}
 
