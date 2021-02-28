@@ -23,6 +23,10 @@ Value::VectorProxy Value::operator[](std::size_t idx) noexcept {
     return Value::VectorProxy(idx, val_, env_);
 }
 
+void Value::reset(void* p) noexcept {
+    YAPDF_EMACS_APPLY(env_, set_user_ptr, val_, p);
+}
+
 auto Value::finalizer() const noexcept -> void (*)(void*) EMACS_NOEXCEPT {
     return YAPDF_EMACS_APPLY(env_, get_user_finalizer, val_);
 }

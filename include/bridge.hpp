@@ -83,10 +83,6 @@ public:
     public:
         VectorProxy(std::size_t idx, emacs_value val, Env& env) noexcept : idx_(idx), val_(val), env_(env) {}
 
-        /// vec_set sets the index-th element of the vector vec to value. index is zero-based. If vec is not a Lisp
-        /// vector, Emacs signals an error of type wrong-type-argument. If index is negative or not less than the number
-        /// of elements in vec, Emacs signals an error of type args-out-of-range.
-
         /// Set the index-th element of the vector to v.
         ///
         /// If index is not less than the number of elements in vector, Emacs will signal an error of type
@@ -131,9 +127,13 @@ public:
     /// Return the type of a Lisp symbol. It corresponds exactly to the Lisp `type-of` function.
     [[nodiscard]] Value typeOf() const noexcept;
 
+    /// \defgroup Vector
+    /// \{
+    ///
     /// Return the number of elements in the vector.
     ///
-    /// Make sure that `Value` represents a Lisp vector, or Emacs will signal an error of type `wrong-type-argument`.
+    /// Make sure that `Value` represents a Lisp vector, or Emacs will signal an error of type `wrong-type-argument` and
+    /// use of the returned value is undefined.
     [[nodiscard]] std::size_t size() const noexcept;
 
     /// Make `Value` vector-like.
@@ -144,6 +144,7 @@ public:
     ///
     /// \see VectorProxy
     VectorProxy operator[](std::size_t idx) noexcept;
+    /// \}
 
     /// Convert from Emacs value to native C++ types.
     ///
@@ -211,21 +212,28 @@ public:
         return as(std::integral_constant<Type, type>{});
     }
 
+    /// \defgroup UserPtr
+    /// \{
+    ///
+    /// Reset the user pointer to p.
+    ///
+    /// Make sure that `Value` represents a user pointer object, or Emacs will signal an error of type
+    /// `wrong-type-argument`.
+    void reset(void* p) noexcept;
+
     /// Return the user pointer finalizer embedded in the user pointer object; this is the fin value that you have
-    /// passed to `make_user_ptr`. If it doesn't have a custom finalizer, Emacs return `nullptr`.
+    /// passed to `make_user_ptr`. If it doesn't have a custom finalizer, Emacs returns `nullptr`.
     ///
     /// Make sure that `Value` represents a user pointer object, or Emacs will signal an error of type
     /// `wrong-type-argument`.
     [[nodiscard]] auto finalizer() const noexcept -> void (*)(void*) EMACS_NOEXCEPT;
 
-    /// set_user_finalizer changes the user pointer finalizer wrapped by value to fin. value must be a user pointer
-    /// object, otherwise Emacs signals an error of type wrong-type-argument. fin can be NULL if value doesn’t need
-    /// custom finalization.
-    ///
+    /// Reset the user pointer finalizer with fin. fin can be `nullptr` if it doesn't need custom finalization.
     ///
     /// Make sure that `Value` represents a user pointer object, or Emacs will signal an error of type
     /// `wrong-type-argument`.
     void finalizer(void (*fin)(void*) EMACS_NOEXCEPT) noexcept;
+    /// \}
 
 #if EMACS_MAJOR_VERSION >= 28
     /// Make function interactive.
@@ -257,14 +265,6 @@ public:
     ///
     /// There can be multiple different values that represent `nil`.
     ///
-    /// # Example
-    ///
-    /// ``` cpp
-    ///
-    /// ```
-    ///
-    /// # Note
-    ///
     /// You could implement an equivalent test by using `intern` to get an `emacs_value` represent `nil`, then use `eq`,
     /// described below, to test for equality. But using this function is more convenient.
     operator bool() const noexcept;
@@ -275,8 +275,6 @@ public:
     ///
     /// `operator==` corresponds to the Lisp `eq` function. For other kinds of equality comparisons, such as `eql`,
     /// `equal`, use `intern` and `funcall` to call the corresponding Lisp function.
-    ///
-    /// # Note
     ///
     /// Two `Value` objects that are different in the C++ sense might still represent the same Lisp object, so you must
     /// always call `operator==` to check for equality.
@@ -623,32 +621,6 @@ public:
     /// extended Emacs characters that don't correspond to Unicode code points. To create such a Lisp string, call e.g.
     /// the function `string` and pass the desired character values as integers.
     ///
-    /// # UserPtr
-    ///
-    /// Create a user pointer Lisp object.
-    ///
-    /// When dealing with C++ code, it's often useful to be able to store arbitrary C++ objects inside Emacs Lisp
-    /// objects. For this purpose the module API provides a unique Lisp datatype called user pointer. A user pointer
-    /// object encapsulates a C++ pointer value and an optional finalizer function. Apart from storing it, Emacs leaves
-    /// the pointer value alone. Even though it's a pointer, there's no requirement that it points to valid memory. If
-    /// you provide a finalizer, Emacs will call it when the user pointer object is garbage collected. Note that Emacs's
-    /// garbage collection is nondeterministic: it might happen long after an object ceases to be used or not at all.
-    /// Therefore you can't use user pointer finalizers for finalization that has to be prompt or deterministic; it's
-    /// best to use finalizers only for clean-ups that can be delayed arbitrarily without bad side effects, such as
-    /// freeing memory. If you store a resource handle in a user pointer that requires deterministic finalization, you
-    /// should use a different mechanism such as unwind-protect. Finalizers can't interact with Emacs in any way; they
-    /// also can't fail.
-    ///
-    /// If fin is not `nullptr`, it must point to a finalizer function with the following signature:
-    ///
-    /// ``` cpp
-    /// void fin (void* ptr) EMACS_NOEXCEPT;
-    /// ```
-    ///
-    /// When the new user pointer object is being garbage collected, Emacs calls fin with ptr as argument. The finalizer
-    /// function may contain arbitrary code, but it must not interact with Emacs in any way or exit nonlocally. It
-    /// should finish as quickly as possible because delaying garbage collection blocks Emacs completely.
-    ///
     /// # ByteString
     ///
     /// Create a unibyte Lisp string object.
@@ -677,6 +649,32 @@ public:
     /// Create an Emacs timestamp as a pair `(TICKS . HZ)`.
     ///
     /// Available since Emacs 27.
+    ///
+    /// # UserPtr
+    ///
+    /// Create a user pointer Lisp object.
+    ///
+    /// When dealing with C++ code, it's often useful to be able to store arbitrary C++ objects inside Emacs Lisp
+    /// objects. For this purpose the module API provides a unique Lisp datatype called user pointer. A user pointer
+    /// object encapsulates a C++ pointer value and an optional finalizer function. Apart from storing it, Emacs leaves
+    /// the pointer value alone. Even though it's a pointer, there's no requirement that it points to valid memory. If
+    /// you provide a finalizer, Emacs will call it when the user pointer object is garbage collected. Note that Emacs's
+    /// garbage collection is nondeterministic: it might happen long after an object ceases to be used or not at all.
+    /// Therefore you can't use user pointer finalizers for finalization that has to be prompt or deterministic; it's
+    /// best to use finalizers only for clean-ups that can be delayed arbitrarily without bad side effects, such as
+    /// freeing memory. If you store a resource handle in a user pointer that requires deterministic finalization, you
+    /// should use a different mechanism such as unwind-protect. Finalizers can't interact with Emacs in any way; they
+    /// also can't fail.
+    ///
+    /// If fin is not `nullptr`, it must point to a finalizer function with the following signature:
+    ///
+    /// ``` cpp
+    /// void fin (void* ptr) EMACS_NOEXCEPT;
+    /// ```
+    ///
+    /// When the new user pointer object is being garbage collected, Emacs calls fin with ptr as argument. The finalizer
+    /// function may contain arbitrary code, but it must not interact with Emacs in any way or exit nonlocally. It
+    /// should finish as quickly as possible because delaying garbage collection blocks Emacs completely.
     template <Value::Type type, typename... Args>
     Expected<Value, Error> make(Args&&... args) noexcept {
         return make(std::integral_constant<Value::Type, type>{}, std::forward<Args>(args)...);

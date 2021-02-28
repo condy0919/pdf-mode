@@ -35,7 +35,6 @@ TEST_CASE("Conversion Between Lisp and Module Values") {
         auto err = val.as<Value::Type::Float>().error();
         REQUIRE_EQ(err.status(), yapdf::emacs::FuncallExit::Signal);
         REQUIRE_EQ(err.symbol(), e.intern("wrong-type-argument").value());
-        // TODO REQUIRE_EQ(err.data(), val);
     }
 
     SUBCASE("Float") {
@@ -120,9 +119,26 @@ TEST_CASE("Conversion Between Lisp and Module Values") {
         REQUIRE(e.call("equal", Value(val[1]), "bar").value());
     }
 
-    SUBCASE("UserPtr") {}
+    SUBCASE("UserPtr") {
+        // c++ -> lisp
+        auto val =
+            e.make<Value::Type::UserPtr>(nullptr, [](void* p) EMACS_NOEXCEPT { REQUIRE_EQ(p, nullptr); }).value();
 
-    SUBCASE("Function") {}
+        // (type-of val) -> 'user-ptr
+        REQUIRE_EQ(val.typeOf(), e.intern("user-ptr").value());
+
+        // lisp -> c++
+        REQUIRE_EQ(val.as<Value::Type::UserPtr>().value(), nullptr);
+
+        const auto fin = val.finalizer();
+        fin(nullptr);
+
+        // discard the custom finalizer
+        val.finalizer(nullptr);
+        val.reset((void*)1);
+
+        REQUIRE_EQ(val.as<Value::Type::UserPtr>().value(), (void*)1);
+    }
 
 #if EMACS_MAJOR_VERSION >= 27
     SUBCASE("Time") {
@@ -167,6 +183,10 @@ TEST_CASE("Conversion Between Lisp and Module Values") {
         REQUIRE_EQ(hi.as<Value::Type::String>().value(), std::string("\xe3\xc4\xc3\xba", 4));
     }
 #endif
+}
+
+TEST_CASE("Funcation") {
+
 }
 
 TEST_CASE("Funcall") {
