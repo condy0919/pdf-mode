@@ -50,16 +50,16 @@ inline T&& return_(T&& x) {
 } // namespace internal
 
 namespace emacs {
+// forward
+class Env;
+class Error;
+enum class FuncallExit;
+
 // HACK: Trick to allow `YAPDF_EMACS_APPLY_CHECK` to handle emacs module functions that return void
 template <typename T>
 inline T&& operator,(T&& x, Void) noexcept {
     return std::forward<T>(x);
 }
-
-// forward
-class Env;
-class Error;
-enum class FuncallExit;
 
 /// A type that represents Lisp values.
 ///
@@ -248,7 +248,6 @@ public:
     /// \since Emacs 28
     Expected<Void, Error> interactive(const char* spec) noexcept;
 
-
     // TODO
     // void (*(*EMACS_ATTRIBUTE_NONNULL (1)
     //             get_function_finalizer) (emacs_env *env,
@@ -260,6 +259,12 @@ public:
     //                                   void (*fin) (void *) EMACS_NOEXCEPT)
     //     EMACS_ATTRIBUTE_NONNULL (1);
 #endif
+
+    /// Call `*this` with args...
+    ///
+    /// \see Env::call
+    template <typename... Args>
+    Expected<Value, Error> operator()(Args&&... args) noexcept;
 
     /// Check whether the Lisp object is not `nil`.
     ///
@@ -558,7 +563,19 @@ public:
         return Value(val, *this);
     }
 
+    /// Call a Lisp function f, passing the given arguments.
     ///
+    /// - `f` should be a string, or a Lisp's callable [`Value`]. `std::abort` otherwise.
+    /// - `args` should be one of the following types:
+    ///   - `std::chrono::nanoseconds`
+    ///   - `const char*`
+    ///   - `const std::string&`
+    ///   - `double`
+    ///   - `void*`
+    ///   - `Value`
+    ///   - Integrals
+    ///
+    /// \see to_lisp
     template <typename F, typename... Args>
     Expected<Value, Error> call(F f, Args&&... args) noexcept {
         emacs_value symbol;
@@ -570,16 +587,8 @@ public:
             YAPDF_UNREACHABLE("Unsupported function type");
         }
 
-        const auto to = Overload{
-            [&](std::chrono::nanoseconds ns) -> Expected<Value, Error> { return make<Value::Type::Time>(ns); },
-            [&](const char* s) -> Expected<Value, Error> { return make<Value::Type::String>(s); },
-            [&](double x) -> Expected<Value, Error> { return make<Value::Type::Float>(x); },
-            [&](auto x) -> Expected<Value, Error> { return make<Value::Type::Int>(x); },
-            [](Value x) -> Expected<Value, Error> { return x; },
-        };
-        const Expected<Value, Error> xs[] = {to(std::forward<Args>(args))...};
-
         emacs_value ys[sizeof...(args)];
+        Expected<Value, Error> xs[] = {to_lisp(*this, std::forward<Args>(args))...};
         for (std::size_t i = 0; i < std::size(ys); ++i) {
             if (xs[i].hasError()) {
                 return Unexpected(xs[i].error());
@@ -865,6 +874,30 @@ private:
     //
     // Expected<Value, Error> make(std::integral_constant<Value::Type, Value::Type::Function>
 
+    /// Convert a C++ type to Lisp `Value`
+    ///
+    /// It converts
+    ///
+    /// - `std::chrono::nanoseconds` to `Value::Type::Time`
+    /// - `const char*` and `const std::string&` to `Value::Type::String`
+    /// - `double` to `Value::Type::Float`
+    /// - `void*` to `Value::Type::UserPtr`
+    /// - `Value` to `Value`
+    /// - Others to `Value::Type::Int`
+    ///
+    /// Since `Env` is still incomplete, we use `auto&` to delay the requirement of `Env` to be a complete type.
+    inline static constexpr auto to_lisp = Overload{
+        [](auto&, Value x) -> Expected<Value, Error> { return x; },
+        [](auto& e, auto x) -> Expected<Value, Error> { return e.template make<Value::Type::Int>(x); },
+        [](auto& e, void* p) -> Expected<Value, Error> { return e.template make<Value::Type::UserPtr>(p); },
+        [](auto& e, double x) -> Expected<Value, Error> { return e.template make<Value::Type::Float>(x); },
+        [](auto& e, const char* s) -> Expected<Value, Error> { return e.template make<Value::Type::String>(s); },
+        [](auto& e, const std::string& s) -> Expected<Value, Error> { return e.template make<Value::Type::String>(s); },
+        [](auto& e, std::chrono::nanoseconds ns) -> Expected<Value, Error> {
+            return e.template make<Value::Type::Time>(ns);
+        },
+    };
+
     emacs_env* env_;
 };
 
@@ -909,13 +942,16 @@ Value::as(std::integral_constant<Value::Type, Value::Type::Time>) const noexcept
 inline Expected<void*, Error> Value::as(std::integral_constant<Value::Type, Value::Type::UserPtr>) const noexcept {
     return YAPDF_EMACS_APPLY_CHECK(env_, get_user_ptr, val_);
 }
+
+template <typename... Args>
+inline Expected<Value, Error> Value::operator()(Args&&... args) noexcept {
+    return env_.call(*this, std::forward<Args>(args)...);
+}
 } // namespace emacs
 
 /// An Emacs instance
 class Emacs {
-    class Value {
-        void set_user_ptr();
-    };
+    class Value {};
 
     // memory management
     Value makeGlobalRef(Value value);
