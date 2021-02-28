@@ -77,8 +77,12 @@ TEST_CASE("Conversion Between Lisp and Module Values") {
         // 你好 in gb2312, it should fail
         const std::uint8_t hello[] = {0xe3, 0xc4, 0xc3, 0xba};
         auto result = e.make<Value::Type::String>((const char*)hello, 4);
+
+#if EMACS_MAJOR_VERSION >= 28
+        // seems like utf-8 check when `make_string` implemented only on Emacs 28
         REQUIRE(result.hasError());
         REQUIRE_EQ(result.error().status(), yapdf::emacs::FuncallExit::Signal);
+#endif
     }
 
     SUBCASE("Vector") {
