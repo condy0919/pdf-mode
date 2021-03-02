@@ -208,11 +208,21 @@ TEST_CASE("Signal") {
 }
 
 TEST_CASE("Throw") {
+    yapdf::emacs::Env e(env);
+    using yapdf::emacs::Value;
 
 }
 
+TEST_CASE("Intern") {
+    yapdf::emacs::Env e(env);
+    using yapdf::emacs::Value;
+
+    const auto ver = e.call("symbol-value", e.intern("emacs-major-version")).expect("symbol-value");
+    REQUIRE_EQ(ver.as<Value::Type::Int>().value(), EMACS_MAJOR_VERSION);
+}
+
 #if EMACS_MAJOR_VERSION >= 28
-TEST_CASE("openChannel") {
+TEST_CASE("OpenChannel") {
     yapdf::emacs::Env e(env);
     using yapdf::emacs::Value;
 
