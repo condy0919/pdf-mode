@@ -568,6 +568,14 @@ public:
         return Value(val, *this);
     }
 
+    /// Set `s`'s function definition to `f`.
+    ///
+    /// \see the Lisp function `defalias`
+    Expected<Void, Error> defalias(const char* s, Value f) noexcept {
+        const Value symbol = YAPDF_TRY(intern(s));
+        return call("defalias", symbol, f).map([](Value) { return Void{}; });
+    }
+
     /// Call a Lisp function f, passing the given arguments.
     ///
     /// - `f` should be a string, or a Lisp's callable [`Value`]. `std::abort` otherwise.
@@ -639,8 +647,8 @@ public:
             return -1;
         }
 
-        // (message *p)
-        const auto result = call("message", *p);
+        // (message "%s" *p)
+        const auto result = call("message", "%s", *p);
         std::free(p);
 
         return result.hasValue() ? 0 : -1;
