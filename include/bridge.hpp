@@ -583,9 +583,11 @@ public:
     ///   - `std::chrono::nanoseconds`
     ///   - `const char*`
     ///   - `const std::string&`
+    ///   - `bool`
     ///   - `double`
     ///   - `void*`
     ///   - `Value`
+    ///   - `Expected<Value, Error>` for convenience
     ///   - Integrals
     ///
     /// \see to_lisp
@@ -948,14 +950,18 @@ private:
     /// Since `Env` is still incomplete, we use `auto&` to delay the requirement of `Env` to be a complete type.
     inline static constexpr auto to_lisp = Overload{
         [](auto&, Value x) -> Expected<Value, Error> { return x; },
+        [](auto&, Expected<Value, Error> ex) -> Expected<Value, Error> { return ex; },
         [](auto& e, bool b) -> Expected<Value, Error> { return e.intern(b ? "t" : "nil"); },
-        [](auto& e, auto x) -> Expected<Value, Error> { return e.template make<Value::Type::Int>(x); },
         [](auto& e, void* p) -> Expected<Value, Error> { return e.template make<Value::Type::UserPtr>(p); },
         [](auto& e, double x) -> Expected<Value, Error> { return e.template make<Value::Type::Float>(x); },
         [](auto& e, const char* s) -> Expected<Value, Error> { return e.template make<Value::Type::String>(s); },
         [](auto& e, const std::string& s) -> Expected<Value, Error> { return e.template make<Value::Type::String>(s); },
         [](auto& e, std::chrono::nanoseconds ns) -> Expected<Value, Error> {
             return e.template make<Value::Type::Time>(ns);
+        },
+        [](auto& e, auto x) -> Expected<Value, Error> {
+            static_assert(std::is_integral_v<decltype(x)>, "x must be integral types");
+            return e.template make<Value::Type::Int>(x);
         },
     };
 

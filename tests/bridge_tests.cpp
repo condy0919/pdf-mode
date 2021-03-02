@@ -185,7 +185,7 @@ TEST_CASE("Conversion Between Lisp and Module Values") {
 #endif
 }
 
-TEST_CASE("Funcation") {
+TEST_CASE("Function") {
 
 }
 
@@ -200,3 +200,51 @@ TEST_CASE("Funcall") {
     auto time = e.call("current-time");
     REQUIRE(time.hasValue());
 }
+
+TEST_CASE("Signal") {
+    yapdf::emacs::Env e(env);
+    using yapdf::emacs::Value;
+
+}
+
+TEST_CASE("Throw") {
+
+}
+
+#if EMACS_MAJOR_VERSION >= 28
+TEST_CASE("openChannel") {
+    yapdf::emacs::Env e(env);
+    using yapdf::emacs::Value;
+
+    // create a new buffer
+    Value buffer = e.call("generate-new-buffer", " *temp* ").expect("generate-new-buffer");
+
+    // make a pipe process
+    Value proc = e.call("make-pipe-process", e.intern(":name"), "test", // the process name
+                        e.intern(":buffer"), buffer,                    // buffer-name is also acceptable
+                        e.intern(":noquery"), e.intern("t"))            // no query when exiting Emacs
+                     .expect("make-pipe-process");
+
+    // duplicate the fd
+    int fd = e.openChannel(proc).expect("open-channel");
+
+    // send msg from C++
+    const char msg[] = "Hi from C++";
+    const int ret = write(fd, msg, std::strlen(msg));
+    REQUIRE_EQ(ret, std::strlen(msg));
+    REQUIRE_EQ(close(fd), 0);
+
+    // make process output ready for Emacs
+    Value result = e.call("accept-process-output", proc).expect("accept-process-output");
+    REQUIRE(static_cast<bool>(result));
+
+    // switch buffer
+    e.call("set-buffer", buffer).expect("set-buffer");
+
+    // get the contents of the current string
+    const std::string got = e.call("buffer-string").expect("buffer-string").as<Value::Type::String>().value();
+    REQUIRE_EQ(got, msg);
+
+    e.call("kill-buffer", buffer).expect("kill-buffer");
+}
+#endif
