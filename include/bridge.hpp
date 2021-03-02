@@ -600,16 +600,18 @@ public:
             YAPDF_UNREACHABLE("Unsupported function type");
         }
 
-        emacs_value ys[sizeof...(args)];
+        constexpr std::size_t n = sizeof...(args);
+
+        emacs_value ys[n];
         Expected<Value, Error> xs[] = {to_lisp(*this, std::forward<Args>(args))...};
-        for (std::size_t i = 0; i < std::size(ys); ++i) {
+        for (std::size_t i = 0; i < n; ++i) {
             if (xs[i].hasError()) {
                 return Unexpected(xs[i].error());
             }
             ys[i] = xs[i].value().native();
         }
 
-        return Value(YAPDF_EMACS_APPLY_CHECK(*this, funcall, symbol, sizeof...(args), ys), *this);
+        return Value(YAPDF_EMACS_APPLY_CHECK(*this, funcall, symbol, n, ys), *this);
     }
 
     /// Display a message at the bottom of the screen.

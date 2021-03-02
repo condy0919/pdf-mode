@@ -195,4 +195,8 @@ TEST_CASE("Funcall") {
 
     auto val = e.call("length", "abc");
     REQUIRE_EQ(val.value().as<Value::Type::Int>().value(), 3);
+
+    // zero args
+    auto time = e.call("current-time");
+    REQUIRE(time.hasValue());
 }
