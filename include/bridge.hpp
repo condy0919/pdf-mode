@@ -531,7 +531,10 @@ enum class ProcessInputResult {
     Quit = 1,
 };
 
-/// Main point of interaction with the Lisp runtime
+/// Main point of interaction with the Lisp runtime.
+///
+/// `Env` represents an Emacs module environment. Exported functions and module initializers will receive a valid `Env`
+/// value. That `Env` value only remains valid (or "live") when the exported function or module initializer is active.
 class Env {
 public:
     explicit Env(emacs_env* env) noexcept : env_(env) {}
@@ -698,6 +701,8 @@ public:
     ///
     /// If your module includes potentially long-running code, it's a good practice to check from time to time in that
     /// code whether the user wants to quit.
+    ///
+    /// Deprecated: use `processInput` instead if it's available.
     bool shouldQuit() noexcept {
         return YAPDF_EMACS_APPLY(*this, should_quit);
     }
@@ -883,11 +888,13 @@ private:
     /// - `double` to `Value::Type::Float`
     /// - `void*` to `Value::Type::UserPtr`
     /// - `Value` to `Value`
+    /// - `bool` to `t` or `nil`
     /// - Others to `Value::Type::Int`
     ///
     /// Since `Env` is still incomplete, we use `auto&` to delay the requirement of `Env` to be a complete type.
     inline static constexpr auto to_lisp = Overload{
         [](auto&, Value x) -> Expected<Value, Error> { return x; },
+        [](auto& e, bool b) -> Expected<Value, Error> { return e.intern(b ? "t" : "nil"); },
         [](auto& e, auto x) -> Expected<Value, Error> { return e.template make<Value::Type::Int>(x); },
         [](auto& e, void* p) -> Expected<Value, Error> { return e.template make<Value::Type::UserPtr>(p); },
         [](auto& e, double x) -> Expected<Value, Error> { return e.template make<Value::Type::Float>(x); },
