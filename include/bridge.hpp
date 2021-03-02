@@ -7,8 +7,10 @@
 
 #include <cassert>
 #include <chrono>
+#include <cstdarg>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <type_traits>
@@ -600,6 +602,48 @@ public:
         }
 
         return Value(YAPDF_EMACS_APPLY_CHECK(*this, funcall, symbol, sizeof...(args), ys), *this);
+    }
+
+    /// Display a message at the bottom of the screen.
+    ///
+    /// The message also goes into the `*Messages*` buffer. In batch mode, the message is printed to the stderr,
+    /// followed by a newline.
+    ///
+    /// \see the Lisp `message` function
+    int message(const char* fmt, ...) noexcept {
+        std::va_list ap;
+
+        // determine the required size
+        va_start(ap, fmt);
+        int n = std::vsnprintf(nullptr, 0, fmt, ap);
+        va_end(ap);
+
+        if (n < 0) {
+            return -1;
+        }
+
+        // one extra byte for '\0'
+        const std::size_t sz = n + 1;
+        char* p = (char*)std::malloc(sz);
+        if (!p) {
+            return -1;
+        }
+
+        // format
+        va_start(ap, fmt);
+        n = std::vsnprintf(p, sz, fmt, ap);
+        va_end(ap);
+
+        if (n < 0) {
+            std::free(p);
+            return -1;
+        }
+
+        // (message *p)
+        const auto result = call("message", *p);
+        std::free(p);
+
+        return result.hasValue() ? 0 : -1;
     }
 
     /// Create an Emacs Lisp value from native C++ types.
