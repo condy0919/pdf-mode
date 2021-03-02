@@ -129,6 +129,11 @@ public:
     /// Return the type of a Lisp symbol. It corresponds exactly to the Lisp `type-of` function.
     [[nodiscard]] Value typeOf() const noexcept;
 
+    /// Return the name of symbol.
+    ///
+    /// \see the Lisp `symbol-name` function
+    [[nodiscard]] Expected<std::string, Error> name() const noexcept;
+
     /// \defgroup Vector
     /// \{
     ///
@@ -576,6 +581,36 @@ public:
         return call("defalias", symbol, f).map([](Value) { return Void{}; });
     }
 
+    /// Call the Emacs special form `defvar`.
+    ///
+    /// \see the Lisp `defvar` function
+    template <typename T>
+    Expected<Void, Error> defvar(const char* sym, T&& init, const char* docstring) noexcept {
+        // Can’t use `call` because `defvar` is not a function
+        return eval(list(intern("defvar"), intern(sym), to_lisp(*this, std::forward<T>(init)), docstring))
+            .map([](Value) { return Void{}; });
+    }
+
+    /// Evaluate using the Emacs function `eval`.
+    ///
+    /// The binding is always lexical.
+    ///
+    /// \see the Lisp `eval` function
+    template <typename... Args>
+    Expected<Value, Error> eval(Args&&... args) noexcept {
+        return call("eval", std::forward<Args>(args)..., intern("t"));
+    }
+
+    /// Create a list with specified arguments as elements.
+    ///
+    /// zero argument is allowed too.
+    ///
+    /// \see the Lisp `list` function
+    template <typename... Args>
+    Expected<Value, Error> list(Args&&... args) noexcept {
+        return call("list", std::forward<Args>(args)...);
+    }
+
     /// Import an Emacs function as a C++ function.
     ///
     /// `sym` must be the Emacs symbol name of the function. Calling the C++ function converts all arguments to Emacs,
@@ -583,9 +618,8 @@ public:
     ///
     /// \see call
     auto importar(const char* sym) noexcept {
-        return [*this, sym](auto&&... args) mutable noexcept {
-            return call(sym, std::forward<decltype(args)>(args)...);
-        };
+        return
+            [*this, sym](auto&&... args) mutable noexcept { return call(sym, std::forward<decltype(args)>(args)...); };
     }
 
     /// Call a Lisp function f, passing the given arguments.

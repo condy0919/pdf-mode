@@ -15,6 +15,10 @@ Value Value::typeOf() const noexcept {
     return Value(YAPDF_EMACS_APPLY(env_, type_of, val_), env_);
 }
 
+Expected<std::string, Error> Value::name() const noexcept {
+    return env_.call("symbol-name", *this).andThen([](Value v) { return v.as<Value::Type::String>(); });
+}
+
 std::size_t Value::size() const noexcept {
     return YAPDF_EMACS_APPLY(env_, vec_size, val_);
 }

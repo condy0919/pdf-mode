@@ -230,6 +230,22 @@ TEST_CASE("Import") {
     REQUIRE(version().value());
 }
 
+TEST_CASE("Defvar") {
+    yapdf::emacs::Env e(env);
+    using yapdf::emacs::Value;
+
+    const auto result = e.defvar("foo", 42, "foo variable");
+    REQUIRE(result.hasValue());
+
+    const auto value = e.call("symbol-value", e.intern("foo"));
+    REQUIRE(value.hasValue());
+    REQUIRE_EQ(value.value().as<Value::Type::Int>().value(), 42);
+
+    const auto value2 = e.eval(e.intern("foo"));
+    REQUIRE(value2.hasValue());
+    REQUIRE_EQ(value2.value().as<Value::Type::Int>().value(), 42);
+}
+
 #if EMACS_MAJOR_VERSION >= 28
 TEST_CASE("OpenChannel") {
     yapdf::emacs::Env e(env);
