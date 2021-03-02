@@ -576,6 +576,18 @@ public:
         return call("defalias", symbol, f).map([](Value) { return Void{}; });
     }
 
+    /// Import an Emacs function as a C++ function.
+    ///
+    /// `sym` must be the Emacs symbol name of the function. Calling the C++ function converts all arguments to Emacs,
+    /// calls the Emacs function name.
+    ///
+    /// \see call
+    auto importar(const char* sym) noexcept {
+        return [*this, sym](auto&&... args) mutable noexcept {
+            return call(sym, std::forward<decltype(args)>(args)...);
+        };
+    }
+
     /// Call a Lisp function f, passing the given arguments.
     ///
     /// - `f` should be a string, or a Lisp's callable [`Value`]. `std::abort` otherwise.
@@ -758,7 +770,7 @@ public:
     /// If your module includes potentially long-running code, it's a good practice to check from time to time in that
     /// code whether the user wants to quit.
     ///
-    /// Deprecated: use `processInput` instead if it's available.
+    /// Deprecated: use `processInput` instead if available.
     bool shouldQuit() noexcept {
         return YAPDF_EMACS_APPLY(*this, should_quit);
     }
