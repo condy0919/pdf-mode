@@ -19,6 +19,10 @@ Expected<std::string, Error> Value::name() const noexcept {
     return env_.call("symbol-name", *this).andThen([](Value v) { return v.as<Value::Type::String>(); });
 }
 
+Expected<Value, Error> Value::value() const noexcept {
+    return env_.call("symbol-value", *this);
+}
+
 std::size_t Value::size() const noexcept {
     return YAPDF_EMACS_APPLY(env_, vec_size, val_);
 }

@@ -218,7 +218,7 @@ TEST_CASE("Intern") {
     using yapdf::emacs::Value;
 
     // presume that we compile and run in the same machine
-    const auto ver = e.call("symbol-value", e.intern("emacs-major-version")).expect("symbol-value");
+    const auto ver = e.intern("emacs-major-version").andThen(&Value::value).expect("symbol-value");
     REQUIRE_EQ(ver.as<Value::Type::Int>().value(), EMACS_MAJOR_VERSION);
 }
 

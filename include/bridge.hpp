@@ -132,7 +132,12 @@ public:
     /// Return the name of symbol.
     ///
     /// \see the Lisp `symbol-name` function
-    [[nodiscard]] Expected<std::string, Error> name() const noexcept;
+    Expected<std::string, Error> name() const noexcept;
+
+    /// Return the value of symbol.
+    ///
+    /// \see the Lisp `symbol-value` function
+    Expected<Value, Error> value() const noexcept;
 
     /// \defgroup Vector
     /// \{
