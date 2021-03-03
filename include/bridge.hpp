@@ -573,6 +573,9 @@ public:
         return Value(val, *this);
     }
 
+    /// \defgroup elisp
+    /// \{
+    ///
     /// Set `s`'s function definition to `f`.
     ///
     /// \see the Lisp function `defalias`
@@ -586,7 +589,7 @@ public:
     /// \see the Lisp `defvar` function
     template <typename T>
     Expected<Void, Error> defvar(const char* sym, T&& init, const char* docstring) noexcept {
-        // Can’t use `call` because `defvar` is not a function
+        // Can't use `call` because `defvar` is not a function
         return eval(list(intern("defvar"), intern(sym), to_lisp(*this, std::forward<T>(init)), docstring))
             .map([](Value) { return Void{}; });
     }
@@ -610,6 +613,7 @@ public:
     Expected<Value, Error> list(Args&&... args) noexcept {
         return call("list", std::forward<Args>(args)...);
     }
+    /// \}
 
     /// Import an Emacs function as a C++ function.
     ///
