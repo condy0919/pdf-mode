@@ -59,6 +59,11 @@ class Env;
 class Error;
 enum class FuncallExit;
 
+/// Function prototype for the module lisp functions. These must not throw C++ exceptions.
+///
+/// We manually typedef `EmacsFunction` for compatibilities.
+using EmacsFunction = emacs_value (*)(emacs_env*, std::ptrdiff_t, emacs_value*, void*) EMACS_NOEXCEPT;
+
 // HACK: Trick to allow `YAPDF_EMACS_APPLY_CHECK` to handle emacs module functions that return void
 template <typename T>
 inline T&& operator,(T&& x, Void) noexcept {
@@ -1059,7 +1064,7 @@ private:
     Expected<Value, Error> make(std::integral_constant<Value::Type, Value::Type::Function>,
                                 std::ptrdiff_t min_arity, // must be greater than zero
                                 std::ptrdiff_t max_arity, // `emacs_variadic_function`
-                                emacs_function f,         // must not throw exception
+                                EmacsFunction f,          // must not throw exception
                                 const char* docstring,    // the docstring of function
                                 void* data) noexcept {    // the extra data will be passed with f
         return Value(YAPDF_EMACS_APPLY_CHECK(*this, make_function, min_arity, max_arity, f, docstring, data), *this);
