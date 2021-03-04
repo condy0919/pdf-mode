@@ -136,6 +136,26 @@ public:
     /// Return the type of a Lisp symbol. It corresponds exactly to the Lisp `type-of` function.
     [[nodiscard]] Value typeOf() const noexcept;
 
+    /// Return the type of `Value` in numeric.
+    ///
+    /// **Unofficial API**
+    ///
+    /// It depends on the emacs object internal implementation. Use at your own risk.
+    ///
+    /// | Type         | Int Value                |
+    /// |--------------|--------------------------|
+    /// | `Symbol`     | 0                        |
+    /// | `Unused`     | 1                        |
+    /// | `Int0`       | 2                        |
+    /// | `Int1`       | 3 or 6 if `!USE_LSB_TAG` |
+    /// | `String`     | 4                        |
+    /// | `VectorLike` | 5                        |
+    /// | `Cons`       | 6 or 3 if `!USE_LSB_TAG` |
+    /// | `Float`      | 7                        |
+    ///
+    /// On my x86-64 Linux, `Int1` is equal to 6 and `Cons` is equal to 3.
+    [[nodiscard]] int type() const noexcept;
+
     /// Return the name of symbol.
     ///
     /// \see the Lisp `symbol-name` function

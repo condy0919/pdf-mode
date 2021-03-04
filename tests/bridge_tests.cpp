@@ -322,3 +322,38 @@ TEST_CASE("OpenChannel") {
     e.call("kill-buffer", buffer).expect("kill-buffer");
 }
 #endif
+
+TEST_CASE("TypeOf") {
+    yapdf::emacs::Env e(env);
+    using yapdf::emacs::Value;
+
+    SUBCASE("Symbol") {
+        auto val = e.intern("foo").value();
+        REQUIRE_EQ(val.type(), 0);
+        REQUIRE_EQ(val.typeOf(), e.intern("symbol").value());
+    }
+
+    SUBCASE("Integer") {
+        auto val = e.make<Value::Type::Int>(42).value();
+        REQUIRE_EQ(val.type(), 2);
+        REQUIRE_EQ(val.typeOf(), e.intern("integer").value());
+    }
+
+    SUBCASE("String") {
+        auto val = e.make<Value::Type::String>("foo").value();
+        REQUIRE_EQ(val.type(), 4);
+        REQUIRE_EQ(val.typeOf(), e.intern("string").value());
+    }
+
+    SUBCASE("VectorLike") {
+        auto val = e.call("vector", 1, 2).value();
+        REQUIRE_EQ(val.type(), 5);
+        REQUIRE_EQ(val.typeOf(), e.intern("vector").value());
+    }
+
+    SUBCASE("Float") {
+        auto val = e.make<Value::Type::Float>(3.14).value();
+        REQUIRE_EQ(val.type(), 7);
+        REQUIRE_EQ(val.typeOf(), e.intern("float").value());
+    }
+}

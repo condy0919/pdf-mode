@@ -15,6 +15,10 @@ Value Value::typeOf() const noexcept {
     return Value(YAPDF_EMACS_APPLY(env_, type_of, val_), env_);
 }
 
+int Value::type() const noexcept {
+    return *(std::uintptr_t*)val_ & 0x7;
+}
+
 Expected<std::string, Error> Value::name() const noexcept {
     return env_.call("symbol-name", *this).andThen([](Value v) { return v.as<Value::Type::String>(); });
 }
