@@ -57,5 +57,20 @@ Value::operator bool() const noexcept {
 bool Value::operator==(const Value& rhs) const noexcept {
     return YAPDF_EMACS_APPLY(env_, eq, val_, rhs.val_);
 }
+
+void Error::report(Env& env) const noexcept {
+    switch (status_) {
+    case FuncallExit::Signal:
+        env.signalError(*this);
+        break;
+
+    case FuncallExit::Throw:
+        env.throwError(*this);
+        break;
+
+    default:
+        YAPDF_UNREACHABLE("report with an unreachable state");
+    }
+}
 } // namespace emacs
 } // namespace yapdf

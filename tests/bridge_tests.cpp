@@ -186,7 +186,48 @@ TEST_CASE("Conversion Between Lisp and Module Values") {
 }
 
 TEST_CASE("Function") {
+    using namespace yapdf::emacs;
 
+    Env e(env);
+
+    // double
+    Value f =
+        e.make<Value::Type::Function>(
+             1, 1,
+             [](Env& env, Value args[], std::size_t n) -> yapdf::Expected<Value, Error> {
+                 REQUIRE_EQ(n, 1);
+
+                 if (args[0].typeOf() == env.intern("integer").value()) {
+                     return args[0].as<Value::Type::Int>().map([](int x) { return x * 2; }).andThen([&](int x) {
+                         return env.make<Value::Type::Int>(x);
+                     });
+                 } else if (args[0].typeOf() == env.intern("float").value()) {
+                     return args[0].as<Value::Type::Float>().map([](double x) { return x * 2; }).andThen([&](double x) {
+                         return env.make<Value::Type::Float>(x);
+                     });
+                 } else {
+                     return yapdf::Unexpected(Error(FuncallExit::Signal, env.intern("wrong-type").value(),
+                                                    env.list().value()));
+                 }
+             },
+             "double integer/float")
+            .expect("make-function");
+    REQUIRE_EQ(e.call(f, 11).expect("double").as<Value::Type::Int>().value(), 22);
+
+    // defalias funcall to double-integer
+    e.defalias("double-integer", f).expect("defalias");
+    REQUIRE_EQ(e.call("double-integer", 42).expect("double").as<Value::Type::Int>().value(), 84);
+
+    // (double-integer 1.5)
+    REQUIRE_EQ(e.call("double-integer", 1.5).expect("double").as<Value::Type::Float>().value(), doctest::Approx(3));
+
+    // (double-integer 1 2)
+    //   Debugger entered--Lisp error: (wrong-number-of-arguments double-integer 2)
+    const Error e1 = e.call("double-integer", 1, 2).expectErr("wrong-number-of-arguments");
+    REQUIRE_EQ(e1.status(), FuncallExit::Signal);
+    REQUIRE_EQ(e1.symbol().name().value(), "wrong-number-of-arguments");
+
+    // (double-integer "string")
 }
 
 TEST_CASE("Funcall") {
@@ -204,13 +245,11 @@ TEST_CASE("Funcall") {
 TEST_CASE("Signal") {
     yapdf::emacs::Env e(env);
     using yapdf::emacs::Value;
-
 }
 
 TEST_CASE("Throw") {
     yapdf::emacs::Env e(env);
     using yapdf::emacs::Value;
-
 }
 
 TEST_CASE("Intern") {

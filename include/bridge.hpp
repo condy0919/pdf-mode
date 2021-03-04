@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <stdexcept>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -20,6 +21,7 @@
 #include <emacs-module.h>
 
 #include "expected.hpp"
+#include "likely.hpp"
 #include "overload.hpp"
 #include "requires.hpp"
 #include "unreachable.hpp"
@@ -438,6 +440,9 @@ public:
         return status_;
     }
 
+    /// Report error to Emacs
+    void report(Env& env) const noexcept;
+
     /// \{
     ///
     /// The Lisp `signal()` function signals an error named by `ERROR-SYMBOL`. The argument `DATA` is a list of
@@ -798,6 +803,36 @@ public:
     /// When the new user pointer object is being garbage collected, Emacs calls fin with ptr as argument. The finalizer
     /// function may contain arbitrary code, but it must not interact with Emacs in any way or exit nonlocally. It
     /// should finish as quickly as possible because delaying garbage collection blocks Emacs completely.
+    ///
+    /// # Function
+    ///
+    /// Create an Emacs function from a C++ function.
+    ///
+    /// This is how you expose functionality from dynamic module to Emacs. To use it, you need to define a module
+    /// function and pass its address as the function argument to `make_function`. `min_arity` and `max_arity` must be
+    /// nonnegative numbers, and `max_arity` must be greater than or equal to `min_arity`. Alternatively, `max_arity`
+    /// can have the special value `emacs_variadic_function`; in this case the function accepts an unbounded number of
+    /// arguments, like functions defined with `&rest` in Lisp. The value of `emacs_variadic_function` is a negative
+    /// number. When applied to a function object returned by `make_function`, the Lisp function `subr-arity` will
+    /// return `(min_arity . max_arity)` if `max_arity` is nonnegative, or `(min_arity . many)` if `max_arity` is
+    /// `emacs_variadic_function`.
+    ///
+    /// Emacs passes the value of the data argument that you give to `make_function` back to your module function, but
+    /// doesn't touch it in any other way. You can use data to pass additional context to the module function. If data
+    /// points to an object, you are responsible to ensure that the object is still live when Emacs calls the module
+    /// function.
+    ///
+    /// Documentation can either be `nullptr` or a pointer to a null-terminated string. If it's `nullptr`, the new
+    /// function won't have a documentation string. If it's not `nullptr`, Emacs interprets it as an UTF-8 string and
+    /// uses it as documentation string for the new function. If it's not a valid UTF-8 string, the documentation string
+    /// for the new function is unspecified.
+    ///
+    /// The documentation string can end with a special string to specify the argument names for the function. See
+    /// Documentation Strings of Functions in the Emacs Lisp reference manual for the syntax.
+    ///
+    /// The function returned by `make_function` isn't bound to a symbol. For the common case that you want to create a
+    /// function object and bind it to a symbol so that Lisp code can call it by name, you need to call `defalias`
+    /// later.
     template <Value::Type type, typename... Args>
     Expected<Value, Error> make(Args&&... args) noexcept {
         return make(std::integral_constant<Value::Type, type>{}, std::forward<Args>(args)...);
@@ -970,25 +1005,65 @@ private:
         return Value(YAPDF_EMACS_APPLY_CHECK(*this, make_user_ptr, fin, p), *this);
     }
 
-    // TODO
-    // emacs_value make_function (emacs_env *env,
-    // ptrdiff_t min_arity, ptrdiff_t max_arity,
-    // emacs_subr function, const char *documentation,
-    // void *data);
-    //
-    // emacs_value (*make_function) (emacs_env *env,
-    // 				ptrdiff_t min_arity,
-    // 				ptrdiff_t max_arity,
-    // 				emacs_value (*func) (emacs_env *env,
-    //                                                      ptrdiff_t nargs,
-    //                                                      emacs_value* args,
-    //                                                      void *data)
-    // 				  EMACS_NOEXCEPT
-    //                                   EMACS_ATTRIBUTE_NONNULL(1),
-    // 				const char *docstring,
-    // 				void *data)
-    //
-    // Expected<Value, Error> make(std::integral_constant<Value::Type, Value::Type::Function>
+    static emacs_value trampoline(emacs_env* env, std::ptrdiff_t nargs, emacs_value args[], void* data) EMACS_NOEXCEPT {
+        Env e(env);
+
+        // avoid to call C++ side functions since exceptions are inhibited
+        const auto signal = [](emacs_env* env, const char* sym, const char* what) noexcept {
+            emacs_value what_obj = env->make_string(env, what, std::strlen(what));
+            emacs_value data = env->funcall(env, env->intern(env, "list"), 1, &what_obj);
+            env->non_local_exit_signal(env, env->intern(env, sym), data);
+        };
+
+        const auto f = reinterpret_cast<Expected<Value, Error> (*)(Env&, Value[], std::size_t)>(data);
+        try {
+            std::vector<Value> vs;
+            vs.reserve(nargs);
+            for (int i = 0; i < nargs; ++i) {
+                vs.emplace_back(args[i], e);
+            }
+
+            const Expected<Value, Error> result = f(e, vs.data(), vs.size());
+            if (YAPDF_LIKELY(result.hasValue())) {
+                return result.value().native();
+            }
+
+            result.error().report(e);
+        } catch (const std::overflow_error& ex) {
+            signal(env, "overflow-error", ex.what());
+        } catch (const std::underflow_error& ex) {
+            signal(env, "underflow-error", ex.what());
+        } catch (const std::range_error& ex) {
+            signal(env, "range-error", ex.what());
+        } catch (const std::out_of_range& ex) {
+            signal(env, "out-of-range", ex.what());
+        } catch (const std::bad_alloc& ex) {
+            signal(env, "memory-full", ex.what());
+        } catch (const std::exception& ex) {
+            // If you have more exception types that you'd like to treat specially, add handlers for them here.
+            signal(env, "error", ex.what());
+        } catch (...) {
+            signal(env, "error", "unknown error");
+        }
+        return nullptr;
+    }
+
+    Expected<Value, Error> make(std::integral_constant<Value::Type, Value::Type::Function> tag,
+                                std::ptrdiff_t min_arity,                                // must be greater than zero
+                                std::ptrdiff_t max_arity,                                // `emacs_variadic_function`
+                                Expected<Value, Error> (*f)(Env&, Value[], std::size_t), // it can throw exception
+                                const char* docstring) noexcept {                        // the docstring of function
+        return make(tag, min_arity, max_arity, trampoline, docstring, reinterpret_cast<void*>(f));
+    }
+
+    Expected<Value, Error> make(std::integral_constant<Value::Type, Value::Type::Function>,
+                                std::ptrdiff_t min_arity, // must be greater than zero
+                                std::ptrdiff_t max_arity, // `emacs_variadic_function`
+                                emacs_function f,         // must not throw exception
+                                const char* docstring,    // the docstring of function
+                                void* data) noexcept {    // the extra data will be passed with f
+        return Value(YAPDF_EMACS_APPLY_CHECK(*this, make_function, min_arity, max_arity, f, docstring, data), *this);
+    }
 
     /// Convert a C++ type to Lisp `Value`
     ///
@@ -1018,6 +1093,11 @@ private:
             static_assert(std::is_integral_v<decltype(x)>, "x must be integral types");
             return e.template make<Value::Type::Int>(x);
         },
+    };
+
+    template <typename T>
+    inline static constexpr auto from_lisp = [](emacs_value v) {
+
     };
 
     emacs_env* env_;

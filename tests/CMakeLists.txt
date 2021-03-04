@@ -10,7 +10,7 @@ target_link_libraries(bridge_tests LINK_PRIVATE
   yapdf::yapdf
 )
 add_test(NAME BridgeTests
-  COMMAND emacs -Q --batch -l $<TARGET_FILE:bridge_tests>
+  COMMAND emacs -Q --batch -l $<TARGET_FILE:bridge_tests> --module-assertions
 )
 
 add_executable(expected_tests
