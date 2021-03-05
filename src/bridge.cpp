@@ -16,7 +16,10 @@ Value Value::typeOf() const noexcept {
 }
 
 int Value::type() const noexcept {
-    return *(std::uintptr_t*)val_ & 0x7;
+    // Lisp_Object obj = val_->v;
+    //
+    // return XTYPE(obj) // obj & 0b111 where GCTYPEBITS == 3
+    return static_cast<int>(*(std::uintptr_t*)val_ & 0x7);
 }
 
 Expected<std::string, Error> Value::name() const noexcept {
@@ -51,6 +54,14 @@ void Value::finalizer(void (*fin)(void*) EMACS_NOEXCEPT) noexcept {
 Expected<Void, Error> Value::interactive(const char* spec) noexcept {
     const Value s = YAPDF_TRY(env_.make<Value::Type::String>(spec));
     return YAPDF_EMACS_APPLY_CHECK(env_, make_interactive, val_, s.native());
+}
+
+auto Value::funcFinalizer() const noexcept -> void (*)(void*) EMACS_NOEXCEPT {
+    return YAPDF_EMACS_APPLY(env_, get_function_finalizer, val_);
+}
+
+void Value::funcFinalizer(void (*fin)(void*) EMACS_NOEXCEPT) noexcept {
+    YAPDF_EMACS_APPLY(env_, set_function_finalizer, val_, fin);
 }
 #endif
 

@@ -287,16 +287,22 @@ public:
     /// \since Emacs 28
     Expected<Void, Error> interactive(const char* spec) noexcept;
 
-    // TODO
-    // void (*(*EMACS_ATTRIBUTE_NONNULL (1)
-    //             get_function_finalizer) (emacs_env *env,
-    //                                      emacs_value arg)) (void *)
-    //                                      EMACS_NOEXCEPT;
+    /// Return the function finalizer associated with the module function returned by `make_function`. If no finalizer
+    /// is associated with the function, `nullptr` is returned.
+    ///
+    /// Make sure that `Value` represents a function, or Emacs will signal an error of type `wrong-type-argument`.
+    ///
+    /// \since Emacs 28
+    [[nodiscard]] auto funcFinalizer() const noexcept -> void (*)(void*) EMACS_NOEXCEPT;
 
-    // TODO
-    //   void (*set_function_finalizer) (emacs_env *env, emacs_value arg,
-    //                                   void (*fin) (void *) EMACS_NOEXCEPT)
-    //     EMACS_ATTRIBUTE_NONNULL (1);
+    /// Set the function finalizer associated with the module function. It can either be `nullptr` to clear function
+    /// finalizer, or a pointer to a function to be called when the object is garbage-collected. At most one function
+    /// finalizer can be set per function; if it already has a finalizer, it is replaced.
+    ///
+    /// Make sure that `Value` represents a function, or Emacs will signal an error of type `wrong-type-argument`.
+    ///
+    /// \since Emacs 28
+    void funcFinalizer(void (*fin)(void*) EMACS_NOEXCEPT) noexcept;
 #endif
 
     /// Call `*this` with args...
