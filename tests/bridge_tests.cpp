@@ -357,3 +357,18 @@ TEST_CASE("TypeOf") {
         REQUIRE_EQ(val.typeOf(), e.intern("float").value());
     }
 }
+
+TEST_CASE("GlobalRef") {
+    using namespace yapdf::emacs;
+    Env e(env);
+
+    GlobalRef t1 = e.intern("t").value().ref();
+
+    Value t2 = t1.bind(e);
+    REQUIRE(t2);
+
+    t1.free(e);
+
+    // UB: use after free
+    // REQUIRE(t2); // abort
+}

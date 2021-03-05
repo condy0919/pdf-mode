@@ -2,6 +2,14 @@
 
 namespace yapdf {
 namespace emacs {
+void GlobalRef::free(Env& env) noexcept {
+    YAPDF_EMACS_APPLY(env, free_global_ref, val_);
+}
+
+Value GlobalRef::bind(Env& env) noexcept {
+    return Value(val_, env);
+}
+
 Value::VectorProxy& Value::VectorProxy::operator=(Value v) noexcept {
     YAPDF_EMACS_APPLY(env_, vec_set, val_, idx_, v.native());
     return *this;
@@ -20,6 +28,10 @@ int Value::type() const noexcept {
     //
     // return XTYPE(obj) // obj & 0b111 where GCTYPEBITS == 3
     return static_cast<int>(*(std::uintptr_t*)val_ & 0x7);
+}
+
+GlobalRef Value::ref() const noexcept {
+    return GlobalRef(YAPDF_EMACS_APPLY(env_, make_global_ref, val_));
 }
 
 Expected<std::string, Error> Value::name() const noexcept {

@@ -56,6 +56,7 @@ inline T&& return_(T&& x) {
 namespace emacs {
 // forward
 class Env;
+class Value;
 class Error;
 enum class FuncallExit;
 
@@ -69,6 +70,36 @@ template <typename T>
 inline T&& operator,(T&& x, Void) noexcept {
     return std::forward<T>(x);
 }
+
+/// Global reference
+///
+/// Most Emacs values have a short lifetime that ends once their owning `Env` goes out of scope. However, occasionally
+/// it's useful to have values with a longer lifetime when creating some objects over and over again incurs a too high
+/// CPU cost.
+///
+/// `GlobalRef` are normal `emacs_value` objects, with one key difference: they are not bound to the lifetime of any
+/// environment. Rather, you can use them, once created, whenever any environment is active. Be aware that using global
+/// reference, like all global state, incurs a readability cost on your code: with global references, you have to keep
+/// track which parts of your code modify which reference. You are also responsible for managing the lifetime of global
+/// references, whereas local values go out of scope manually.
+class GlobalRef {
+public:
+    GlobalRef() noexcept = default;
+
+    /// Create `GlobalRef` from `emacs_value`.
+    ///
+    /// User should NOT call this function directly.
+    explicit GlobalRef(emacs_value val) noexcept : val_(val) {}
+
+    /// Free this global reference
+    void free(Env& env) noexcept;
+
+    /// Return the underlying `Value`, scoping its lifetime to the given `Env`
+    Value bind(Env& env) noexcept;
+
+private:
+    emacs_value val_;
+};
 
 /// A type that represents Lisp values.
 ///
@@ -155,6 +186,9 @@ public:
     ///
     /// On my x86-64 Linux, `Int1` is equal to 6 and `Cons` is equal to 3.
     [[nodiscard]] int type() const noexcept;
+
+    /// Create a new `GlobalRef` for this Value
+    [[nodiscard]] GlobalRef ref() const noexcept;
 
     /// Return the name of symbol.
     ///
@@ -1181,15 +1215,6 @@ inline Expected<Value, Error> Value::operator()(Args&&... args) noexcept {
     return env_.call(*this, std::forward<Args>(args)...);
 }
 } // namespace emacs
-
-/// An Emacs instance
-class Emacs {
-    class Value {};
-
-    // memory management
-    Value makeGlobalRef(Value value);
-    void freeGlobalRef(Value value);
-};
 } // namespace yapdf
 
 #endif // YAPDF_BRIDGE_HPP_
