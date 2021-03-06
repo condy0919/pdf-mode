@@ -43,6 +43,8 @@ target_link_libraries(yapdf PRIVATE Threads::Threads)
 
 # Benchmark
 if(YAPDF_ENABLE_BENCHMARKS)
+  enable_testing()
+
   set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Disable benchmark testing" FORCE)
   FetchContent_Declare(
     benchmark
