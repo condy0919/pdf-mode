@@ -64,7 +64,7 @@ if(YAPDF_ENABLE_TESTS)
   FetchContent_Declare(
     doctest
     GIT_REPOSITORY https://github.com/onqtam/doctest
-    GIT_TAG        2.4.4
+    GIT_TAG        2.4.5
     GIT_SHALLOW    true
     GIT_PROGRESS   true
   )
@@ -92,7 +92,7 @@ target_sources(yapdf
 
 ### Obtain version information from Git
 if(NOT YAPDF_VERSION)
-  execute_process(COMMAND git describe --tag --long HEAD
+  execute_process(COMMAND git describe --always --long HEAD
     OUTPUT_VARIABLE YAPDF_VERSION
     OUTPUT_STRIP_TRAILING_WHITESPACE
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
