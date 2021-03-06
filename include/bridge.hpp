@@ -91,6 +91,11 @@ public:
     /// User should NOT call this function directly.
     explicit GlobalRef(emacs_value val) noexcept : val_(val) {}
 
+    /// Return the native handle of `emacs_value`
+    [[nodiscard]] emacs_value native() const noexcept {
+        return val_;
+    }
+
     /// Free this global reference
     void free(Env& env) noexcept;
 
@@ -173,18 +178,20 @@ public:
     ///
     /// It depends on the emacs object internal implementation. Use at your own risk.
     ///
-    /// | Type         | Int Value                |
-    /// |--------------|--------------------------|
-    /// | `Symbol`     | 0                        |
-    /// | `Unused`     | 1                        |
-    /// | `Int0`       | 2                        |
-    /// | `Int1`       | 3 or 6 if `!USE_LSB_TAG` |
-    /// | `String`     | 4                        |
-    /// | `VectorLike` | 5                        |
-    /// | `Cons`       | 6 or 3 if `!USE_LSB_TAG` |
-    /// | `Float`      | 7                        |
+    /// | Type         | Int Value |
+    /// |--------------|-----------|
+    /// | `Symbol`     | 0         |
+    /// | `Unused`     | 1         |
+    /// | `Int0`       | 2         |
+    /// | `Cons`       | 3/6       |
+    /// | `String`     | 4         |
+    /// | `VectorLike` | 5         |
+    /// | `Int1`       | 6/3       |
+    /// | `Float`      | 7         |
     ///
-    /// On my x86-64 Linux, `Int1` is equal to 6 and `Cons` is equal to 3.
+    /// On my x86-64 Linux, `Cons` is equal to 3 and `Int1` is equal to 6.
+    ///
+    /// Maybe `Int1` represent `BigInt` which is supported since Emacs 27?
     [[nodiscard]] int type() const noexcept;
 
     /// Create a new `GlobalRef` for this Value
@@ -703,7 +710,7 @@ public:
 
     /// Call a Lisp function f, passing the given arguments.
     ///
-    /// - `f` should be a string, or a Lisp's callable [`Value`]. `std::abort` otherwise.
+    /// - `f` should be a string, a Lisp's callable `Value` or a `GlobalRef`. `std::abort` otherwise.
     /// - `args` should be one of the following types:
     ///   - `std::chrono::nanoseconds`
     ///   - `const char*`
@@ -719,7 +726,7 @@ public:
     template <typename F, typename... Args>
     Expected<Value, Error> call(F f, Args&&... args) noexcept {
         emacs_value symbol;
-        if constexpr (std::is_same_v<F, Value>) {
+        if constexpr (std::is_same_v<F, Value> || std::is_same_v<F, GlobalRef>) {
             symbol = f.native();
         } else if constexpr (std::is_same_v<F, const char*>) {
             symbol = YAPDF_EMACS_APPLY_CHECK(*this, intern, f);
@@ -1073,7 +1080,7 @@ private:
     static emacs_value trampoline(emacs_env* env, std::ptrdiff_t nargs, emacs_value args[], void* data) EMACS_NOEXCEPT {
         Env e(env);
 
-        // avoid to call C++ side functions since exceptions are inhibited
+        // avoid to call C++ functions since exceptions are inhibited
         const auto signal = [](emacs_env* env, const char* sym, const char* what) noexcept {
             emacs_value what_obj = env->make_string(env, what, std::strlen(what));
             emacs_value data = env->funcall(env, env->intern(env, "list"), 1, &what_obj);
@@ -1145,6 +1152,7 @@ private:
     /// Since `Env` is still incomplete, we use `auto&` to delay the requirement of `Env` to be a complete type.
     inline static constexpr auto to_lisp = Overload{
         [](auto&, Value x) -> Expected<Value, Error> { return x; },
+        [](auto& e, GlobalRef x) -> Expected<Value, Error> { return x.bind(e); },
         [](auto&, Expected<Value, Error> ex) -> Expected<Value, Error> { return ex; },
         [](auto& e, bool b) -> Expected<Value, Error> { return e.intern(b ? "t" : "nil"); },
         [](auto& e, void* p) -> Expected<Value, Error> { return e.template make<Value::Type::UserPtr>(p); },

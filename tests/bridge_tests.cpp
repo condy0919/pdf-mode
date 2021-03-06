@@ -243,13 +243,14 @@ TEST_CASE("Funcall") {
 }
 
 TEST_CASE("Signal") {
-    yapdf::emacs::Env e(env);
-    using yapdf::emacs::Value;
-}
+    using namespace yapdf::emacs;
 
-TEST_CASE("Throw") {
-    yapdf::emacs::Env e(env);
-    using yapdf::emacs::Value;
+    Env e(env);
+    e.signalError(Error(FuncallExit::Signal, e.intern("error").value(), e.list().value()));
+    REQUIRE_EQ(e.checkError(), FuncallExit::Signal);
+
+    e.clearError();
+    REQUIRE_EQ(e.checkError(), FuncallExit::Return);
 }
 
 TEST_CASE("Intern") {
@@ -371,4 +372,8 @@ TEST_CASE("GlobalRef") {
 
     // UB: use after free
     // REQUIRE(t2); // abort
+
+    GlobalRef symval = e.intern("symbol-value").value().ref();
+    auto val = e.call(symval, e.intern("emacs-version").value()).value();
+    REQUIRE_GT(val.as<Value::Type::String>().value(), "25");
 }
