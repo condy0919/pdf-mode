@@ -189,6 +189,7 @@
 
 #include "likely.hpp"
 #include "requires.hpp"
+#include "void.hpp"
 
 #define YAPDF_TRY(exp)                                                                                                 \
     ({                                                                                                                 \
@@ -813,6 +814,26 @@ public:
             throw BadExpectedAccess(s);
         }
         return std::move(error());
+    }
+    /// \}
+
+    /// \{
+    ///
+    /// Discard an `Expected` object.
+    Expected<Void, E> discard() & {
+        return map([](auto&&) { return Void{}; });
+    }
+
+    Expected<Void, E> discard() const& {
+        return map([](auto&&) { return Void{}; });
+    }
+
+    Expected<Void, E> discard() && {
+        return map([](auto&&) { return Void{}; });
+    }
+
+    Expected<Void, E> discard() const&& {
+        return map([](auto&&) { return Void{}; });
     }
     /// \}
 

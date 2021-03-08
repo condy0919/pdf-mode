@@ -50,6 +50,10 @@ Value::VectorProxy Value::operator[](std::size_t idx) noexcept {
     return Value::VectorProxy(idx, val_, env_);
 }
 
+Expected<Value, Error> Value::at(std::size_t idx) noexcept {
+    return Value(YAPDF_EMACS_APPLY_CHECK(env_, vec_get, val_, idx), env_);
+}
+
 void Value::reset(void* p) noexcept {
     YAPDF_EMACS_APPLY(env_, set_user_ptr, val_, p);
 }

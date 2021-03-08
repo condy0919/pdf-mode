@@ -206,8 +206,8 @@ TEST_CASE("Function") {
                          return env.make<Value::Type::Float>(x);
                      });
                  } else {
-                     return yapdf::Unexpected(Error(FuncallExit::Signal, env.intern("wrong-type").value(),
-                                                    env.list().value()));
+                     return yapdf::Unexpected(
+                         Error(FuncallExit::Signal, env.intern("wrong-type").value(), env.list().value()));
                  }
              },
              "double integer/float")
@@ -227,7 +227,20 @@ TEST_CASE("Function") {
     REQUIRE_EQ(e1.status(), FuncallExit::Signal);
     REQUIRE_EQ(e1.symbol().name().value(), "wrong-number-of-arguments");
 
-    // (double-integer "string")
+    Value plus2 = e.make<Value::Type::Function>(
+                       +[](Env&, int x) { return x + 2; }, "plus 2")
+                      .expect("plus 2");
+    REQUIRE_EQ(e.call(plus2, 2).value().as<Value::Type::Int>().value(), 4);
+
+    Value nothing = e.make<Value::Type::Function>(
+                         +[](Env&) {}, "nothing")
+                        .expect("nothing");
+    REQUIRE_FALSE(static_cast<bool>(e.call(nothing).value()));
+
+    Value throw_ex = e.make<Value::Type::Function>(
+                          +[](Env&) { throw 1; }, "throw exception")
+                         .expect("throw exception");
+    e.call(throw_ex);
 }
 
 TEST_CASE("Funcall") {

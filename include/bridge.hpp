@@ -83,13 +83,13 @@ inline T&& operator,(T&& x, Void) noexcept {
 /// track which parts of your code modify which reference. You are also responsible for managing the lifetime of global
 /// references, whereas local values go out of scope manually.
 class GlobalRef {
-public:
-    GlobalRef() noexcept = default;
+    friend class Value;
 
-    /// Create `GlobalRef` from `emacs_value`.
+public:
+    /// Construct `GlobalRef` in a uninitialized state.
     ///
-    /// User should NOT call this function directly.
-    explicit GlobalRef(emacs_value val) noexcept : val_(val) {}
+    /// Use of such state `GlobalRef` is UB.
+    GlobalRef() noexcept = default;
 
     /// Return the native handle of `emacs_value`
     [[nodiscard]] emacs_value native() const noexcept {
@@ -103,6 +103,11 @@ public:
     Value bind(Env& env) noexcept;
 
 private:
+    /// Create `GlobalRef` from `emacs_value`.
+    ///
+    /// User should NOT call this function directly.
+    explicit GlobalRef(emacs_value val) noexcept : val_(val) {}
+
     emacs_value val_;
 };
 
@@ -119,7 +124,7 @@ public:
     /// # Example
     ///
     /// ``` cpp
-    /// Value vec;
+    /// Value vec = env.call("vector", 101, 202, 303, 404).expect("vector");
     ///
     /// vec[10] = 1;
     /// const Value v = vec[11];
@@ -194,7 +199,9 @@ public:
     /// Maybe `Int1` represent `BigInt` which is supported since Emacs 27?
     [[nodiscard]] int type() const noexcept;
 
-    /// Create a new `GlobalRef` for this Value
+    /// Create a new `GlobalRef` for this Value.
+    ///
+    /// NOTE: Since `Value` is in good state, creating a reference to it is trivial and couldn't raise an signal.
     [[nodiscard]] GlobalRef ref() const noexcept;
 
     /// Return the name of symbol.
@@ -224,6 +231,11 @@ public:
     ///
     /// \see VectorProxy
     VectorProxy operator[](std::size_t idx) noexcept;
+
+    /// Return the idx-th of `Value`.
+    ///
+    /// Unlike `std::vector`, `Vector::at` will return an `Expected<T, E>` type.
+    Expected<Value, Error> at(std::size_t idx) noexcept;
     /// \}
 
     /// Convert from Emacs value to native C++ types.
@@ -641,12 +653,9 @@ public:
 
     /// Provide feature to Emacs.
     ///
-    /// Presume that `intern` never fails for small strings, e.g. "provide" and the `feature` string. The same
-    /// assumption for `(funcall 'provide feature)`
-    void provide(const char* feature) noexcept {
-        emacs_value feat = YAPDF_EMACS_APPLY(*this, intern, feature);
-        emacs_value prv = YAPDF_EMACS_APPLY(*this, intern, "provide");
-        YAPDF_EMACS_APPLY(*this, funcall, prv, 1, &feat);
+    /// Panic if it fails.
+    Expected<Void, Error> provide(const char* feature) noexcept {
+        return call("provide", intern(feature)).discard();
     }
 
     /// Return the canonical symbol whose name is `s`.
@@ -663,7 +672,7 @@ public:
     /// \see the Lisp function `defalias`
     Expected<Void, Error> defalias(const char* s, Value f) noexcept {
         const Value symbol = YAPDF_TRY(intern(s));
-        return call("defalias", symbol, f).map([](Value) { return Void{}; });
+        return call("defalias", symbol, f).discard();
     }
 
     /// Call the Emacs special form `defvar`.
@@ -672,8 +681,7 @@ public:
     template <typename T>
     Expected<Void, Error> defvar(const char* sym, T&& init, const char* docstring) noexcept {
         // Can't use `call` because `defvar` is not a function
-        return eval(list(intern("defvar"), intern(sym), to_lisp(*this, std::forward<T>(init)), docstring))
-            .map([](Value) { return Void{}; });
+        return eval(list(intern("defvar"), intern(sym), to_lisp(*this, std::forward<T>(init)), docstring)).discard();
     }
 
     /// Evaluate using the Emacs function `eval`.
@@ -905,6 +913,45 @@ public:
     /// The function returned by `make_function` isn't bound to a symbol. For the common case that you want to create a
     /// function object and bind it to a symbol so that Lisp code can call it by name, you need to call `defalias`
     /// later.
+    ///
+    /// There are three ways to make a function in this library.
+    ///
+    /// The first one is as simple as the `make_function`:
+    ///
+    /// ``` c++
+    /// e.make<Function>(min_arity, max_arity, [](emacs_env* env, emacs_value args[], std::ptrdiff_t n, void* data) -> emacs_value {
+    ///     // ...
+    /// },
+    /// "example");
+    /// ```
+    ///
+    /// The second one wraps `emacs_value` in `Value` so that user doesn't need to construct it again from `emacs_value`.
+    ///
+    /// ``` c++
+    /// e.make<Function>(min_arity, max_arity, [](Env& e, Value args[], std::size_t n) -> Expected<Value, Error> {
+    ///     assert(n >= min_arity);
+    ///     assert(n <= max_arity);
+    ///
+    ///     const int a = YAPDF_TRY(args[0].as<Value::Type::Int>());
+    ///     const int b = YAPDF_TRY(args[1].as<Value::Type::Int>());
+    ///     return e.make<Value::Type::Int>(a + b);
+    /// },
+    /// "example");
+    /// ```
+    ///
+    /// The third one can't specify the arity of function, but it uses C++ native types. No need to convert between C++
+    /// native types and Elisp types. The first argument of the lambda must be `Env&` type.
+    ///
+    /// ``` c++
+    /// e.make<Function>(+[](Env& e, int a, int b) { return a + b; }, "add");
+    /// ```
+    ///
+    /// The `+` is necessary, since it makes the lambda decay to function pointer.
+    ///
+    /// # Rationale
+    ///
+    /// - For those lambdas that returning `void`, a Elisp `nil` is returned when calling in elisp side
+    /// - The first argument of the lambda must be `Env&` type
     template <Value::Type type, typename... Args>
     Expected<Value, Error> make(Args&&... args) noexcept {
         return make(std::integral_constant<Value::Type, type>{}, std::forward<Args>(args)...);
@@ -1079,14 +1126,6 @@ private:
 
     static emacs_value trampoline(emacs_env* env, std::ptrdiff_t nargs, emacs_value args[], void* data) EMACS_NOEXCEPT {
         Env e(env);
-
-        // avoid to call C++ functions since exceptions are inhibited
-        const auto signal = [](emacs_env* env, const char* sym, const char* what) noexcept {
-            emacs_value what_obj = env->make_string(env, what, std::strlen(what));
-            emacs_value data = env->funcall(env, env->intern(env, "list"), 1, &what_obj);
-            env->non_local_exit_signal(env, env->intern(env, sym), data);
-        };
-
         const auto f = reinterpret_cast<Expected<Value, Error> (*)(Env&, Value[], std::size_t)>(data);
         try {
             std::vector<Value> vs;
@@ -1120,6 +1159,14 @@ private:
         return nullptr;
     }
 
+    template <typename... Args, typename F, std::size_t... Is>
+    static auto trampoline(F&& f, Env& e, emacs_value args[], std::index_sequence<Is...>) {
+        // `.value()` will throw if it can't construct `Args` from Elisp types
+        return std::invoke(std::forward<F>(f), e, from_lisp<Args>(e, args[Is]).value()...);
+    }
+
+    // The arguments of f can be `Value` type, and any calls of `Env` can yield `Error` result, returning an
+    // `Expected<Value, Error>` makes sense
     Expected<Value, Error> make(std::integral_constant<Value::Type, Value::Type::Function> tag,
                                 std::ptrdiff_t min_arity,                                // must be greater than zero
                                 std::ptrdiff_t max_arity,                                // `emacs_variadic_function`
@@ -1137,19 +1184,76 @@ private:
         return Value(YAPDF_EMACS_APPLY_CHECK(*this, make_function, min_arity, max_arity, f, docstring, data), *this);
     }
 
-    /// Convert a C++ type to Lisp `Value`
+    template <typename R, typename... Args>
+    Expected<Value, Error> make(std::integral_constant<Value::Type, Value::Type::Function> tag,
+                                R (*f)(Env& e, Args... args), const char* docstring) noexcept {
+        constexpr std::size_t arity = sizeof...(Args);
+        return make(
+            tag, arity, arity,
+            [](emacs_env* env, std::ptrdiff_t nargs, emacs_value args[], void* data) EMACS_NOEXCEPT -> emacs_value {
+                assert(arity == nargs);
+
+                Env e(env);
+                const auto f = reinterpret_cast<R (*)(Env&, Args...)>(data);
+                try {
+                    if constexpr (std::is_void_v<R>) {
+                        Env::trampoline<Args...>(f, e, args, std::index_sequence_for<Args...>{});
+                        return env->intern(env, "nil");
+                    } else {
+                        const auto result = Env::trampoline<Args...>(f, e, args, std::index_sequence_for<Args...>{});
+                        if (const auto ex = to_lisp(e, result); YAPDF_LIKELY(ex.hasValue())) {
+                            return ex.value().native();
+                        } else {
+                            ex.error().report(e);
+                        }
+                    }
+                } catch (const std::overflow_error& ex) {
+                    signal(env, "overflow-error", ex.what());
+                } catch (const std::underflow_error& ex) {
+                    signal(env, "underflow-error", ex.what());
+                } catch (const std::range_error& ex) {
+                    signal(env, "range-error", ex.what());
+                } catch (const std::out_of_range& ex) {
+                    signal(env, "out-of-range", ex.what());
+                } catch (const std::bad_alloc& ex) {
+                    signal(env, "memory-full", ex.what());
+                } catch (const BadExpectedAccess& ex) {
+                    signal(env, "convert-error", ex.what());
+                } catch (const std::exception& ex) {
+                    signal(env, "error", ex.what());
+                } catch (...) {
+                    signal(env, "error", "unknown error");
+                }
+                __builtin_printf("Return to Emacs\n");
+                return nullptr;
+            },
+            docstring, reinterpret_cast<void*>(f));
+    }
+
+    /// Signal an error to emacs.
     ///
-    /// It converts
-    ///
-    /// - `std::chrono::nanoseconds` to `Value::Type::Time`
-    /// - `const char*` and `const std::string&` to `Value::Type::String`
-    /// - `double` to `Value::Type::Float`
-    /// - `void*` to `Value::Type::UserPtr`
-    /// - `Value` to `Value`
-    /// - `bool` to `t` or `nil`
-    /// - Others to `Value::Type::Int`
-    ///
-    /// Since `Env` is still incomplete, we use `auto&` to delay the requirement of `Env` to be a complete type.
+    /// Avoid to call C++ functions since exceptions are inhibited in FFI boundary.
+    static void signal(emacs_env* env, const char* sym, const char* what) noexcept {
+        // It's rare to cause an error during `make_string` and `intern`. `non_local_exit_signal` will tell us the
+        // allocation failures
+        emacs_value what_obj = env->make_string(env, what, std::strlen(what));
+        emacs_value data = env->funcall(env, env->intern(env, "list"), 1, &what_obj);
+        env->non_local_exit_signal(env, env->intern(env, sym), data);
+    }
+
+    // Convert a C++ type to Lisp `Value`
+    //
+    // It converts
+    //
+    // - `std::chrono::nanoseconds` to `Value::Type::Time`
+    // - `const char*` and `const std::string&` to `Value::Type::String`
+    // - `double` to `Value::Type::Float`
+    // - `void*` to `Value::Type::UserPtr`, e.g. `int*` can implicitly cast to `void*`
+    // - `Value` to `Value`
+    // - `bool` to `t` or `nil`
+    // - Others to `Value::Type::Int`
+    //
+    // Since `Env` is still incomplete, we use `auto&` to delay the requirement of `Env` to be a complete type.
     inline static constexpr auto to_lisp = Overload{
         [](auto&, Value x) -> Expected<Value, Error> { return x; },
         [](auto& e, GlobalRef x) -> Expected<Value, Error> { return x.bind(e); },
@@ -1168,9 +1272,34 @@ private:
         },
     };
 
+    // Convert an `emacs_value` to C++ type.
+    //
+    // - `std::chrono::nanoseconds` from `Value::Type::Time`
+    // - `std::string` from `Value::Type::String`
+    // - `double`, `float` and other floating point types from `Value::Type::Float`
+    // - `T*` from `Value::Type::UserPtr`
+    // - `bool` by checking `is_not_nil` of `emacs_value`
+    // - `Value` identical to `Value`
+    // - integral types from `Value::Type::Int`
     template <typename T>
-    inline static constexpr auto from_lisp = [](emacs_value v) {
-
+    inline static constexpr auto from_lisp = [](Env& e, emacs_value v) {
+        if constexpr (std::is_same_v<T, std::chrono::nanoseconds>) {
+            return Value(v, e).as<Value::Type::Time>();
+        } else if constexpr (std::is_same_v<T, std::string>) {
+            return Value(v, e).as<Value::Type::String>();
+        } else if constexpr (std::is_floating_point_v<T>) {
+            return Value(v, e).as<Value::Type::Float>();
+        } else if constexpr (std::is_pointer_v<T>) {
+            return Value(v, e).as<Value::Type::UserPtr>();
+        } else if constexpr (std::is_same_v<T, bool>) {
+            return bool(Value(v, e));
+        } else if constexpr (std::is_same_v<T, Value>) {
+            return Value(v, e);
+        } else if constexpr (std::is_integral_v<T>) {
+            return Value(v, e).as<Value::Type::Int>();
+        } else {
+            YAPDF_UNREACHABLE("Handle more types");
+        }
     };
 
     emacs_env* env_;

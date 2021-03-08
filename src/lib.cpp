@@ -1,7 +1,4 @@
-#include <cassert>
-#include <cstddef>
-#include <cstdint>
-#include <emacs-module.h>
+#include "bridge.hpp"
 
 // It indicates that it's released under the GPL or compatible license.
 int plugin_is_GPL_compatible;
@@ -47,6 +44,15 @@ int emacs_module_init(struct emacs_runtime* runtime) EMACS_NOEXCEPT {
     // emacs_value fset = env->intern(env, "fset");
     // emacs_value args2[] = {fname, fn};
     // env->funcall(env, fset, 2, args2);
+
+    using namespace yapdf::emacs;
+
+    Env e(env);
+    const Value foo = e.make<Value::Type::Function>(
+                           +[](Env&) { throw 1; }, "throw exception")
+                          .expect("throw");
+
+    e.defalias("foo-fun", foo).expect("defalias foo to foo-fun");
 
     return 0;
 }
