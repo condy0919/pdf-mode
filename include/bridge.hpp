@@ -651,13 +651,6 @@ public:
         return env_;
     }
 
-    /// Provide feature to Emacs.
-    ///
-    /// Panic if it fails.
-    Expected<Void, Error> provide(const char* feature) noexcept {
-        return call("provide", intern(feature)).discard();
-    }
-
     /// Return the canonical symbol whose name is `s`.
     Expected<Value, Error> intern(const char* s) noexcept {
         const emacs_value val = YAPDF_EMACS_APPLY_CHECK(*this, intern, s);
@@ -673,6 +666,13 @@ public:
     Expected<Void, Error> defalias(const char* s, Value f) noexcept {
         const Value symbol = YAPDF_TRY(intern(s));
         return call("defalias", symbol, f).discard();
+    }
+
+    /// Provide feature to Emacs.
+    ///
+    /// \see the Lisp function `provide`
+    Expected<Void, Error> provide(const char* feature) noexcept {
+        return call("provide", intern(feature)).discard();
     }
 
     /// Call the Emacs special form `defvar`.
