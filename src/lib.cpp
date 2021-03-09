@@ -23,35 +23,13 @@ int emacs_module_init(struct emacs_runtime* runtime) EMACS_NOEXCEPT {
         return 2;
     }
 
-    // emacs_env* env = ert->get_environment(ert);
-
-    // // register a simple function
-    // // create the Emacs-side function wrapper object
-    // emacs_value fn = env->make_function(
-    //     env, 1, 1,
-    //     [](emacs_env* env, std::ptrdiff_t, emacs_value args[], void*)
-    //         EMACS_NOEXCEPT {
-    //             const long result = env->extract_integer(env, args[0]) * 2;
-    //             return env->make_integer(env, result);
-    //         },
-    //     "An example function that doubles its argument", nullptr);
-
-    // emacs_value args[] = {env->make_integer(env, 3)};
-    // emacs_value retval = env->funcall(env, fn, 1, args);
-    // assert(env->extract_integer(env, retval) == 6);
-
-    // emacs_value fname = env->intern(env, "yapdf-unary-int-fn");
-    // emacs_value fset = env->intern(env, "fset");
-    // emacs_value args2[] = {fname, fn};
-    // env->funcall(env, fset, 2, args2);
-
     using namespace yapdf::emacs;
 
+    // Create the Emacs-side function wrapper object
     Env e(env);
     const Value foo = e.make<Value::Type::Function>(
-                           +[](Env&) { throw 1; }, "throw exception")
-                          .expect("throw");
-
+                           +[](Env&) { throw 1; }, "An example function that throws exception")
+                          .expect("Create a function that throws exception");
     e.defalias("foo-fun", foo).expect("defalias foo to foo-fun");
 
     return 0;
