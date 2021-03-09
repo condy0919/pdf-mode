@@ -200,8 +200,6 @@ public:
     [[nodiscard]] int type() const noexcept;
 
     /// Create a new `GlobalRef` for this Value.
-    ///
-    /// NOTE: Since `Value` is in good state, creating a reference to it is trivial and couldn't raise an signal.
     [[nodiscard]] GlobalRef ref() const noexcept;
 
     /// Return the name of symbol.
