@@ -640,12 +640,6 @@ class Env {
 public:
     explicit Env(emacs_env* env) noexcept : env_(env) {}
 
-    ~Env() {
-        if (checkError() != FuncallExit::Return) {
-            clearError();
-        }
-    }
-
     /// Return the native handle of `emacs_env`
     [[nodiscard]] emacs_env* native() const noexcept {
         return env_;
@@ -1224,7 +1218,6 @@ private:
                 } catch (...) {
                     signal(env, "error", "unknown error");
                 }
-                __builtin_printf("Return to Emacs\n");
                 return nullptr;
             },
             docstring, reinterpret_cast<void*>(f));

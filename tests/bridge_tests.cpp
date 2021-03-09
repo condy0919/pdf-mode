@@ -240,7 +240,7 @@ TEST_CASE("Function") {
     Value throw_ex = e.make<Value::Type::Function>(
                           +[](Env&) { throw 1; }, "throw exception")
                          .expect("throw exception");
-    e.call(throw_ex);
+    static_cast<void>(e.call(throw_ex));
 }
 
 TEST_CASE("Funcall") {
