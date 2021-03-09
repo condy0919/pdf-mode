@@ -232,6 +232,22 @@ TEST_CASE("Function") {
                       .expect("plus 2");
     REQUIRE_EQ(e.call(plus2, 2).value().as<Value::Type::Int>().value(), 4);
 
+    Value id_bool = e.make<Value::Type::Function>(
+                         +[](Env&, bool b) { return b; }, "identical")
+                        .expect("make an identical function for bool types");
+    REQUIRE(bool(e.call(id_bool, true).value()));
+    REQUIRE_FALSE(bool(e.call(id_bool, false).value()));
+
+    Value id_float = e.make<Value::Type::Function>(
+                          +[](Env&, float f) { return f; }, "identical")
+                         .expect("make an identical function for float types");
+    REQUIRE_EQ(e.call(id_float, 2.5).value().as<Value::Type::Float>().value(), doctest::Approx(2.5));
+
+    Value id_double = e.make<Value::Type::Function>(
+                           +[](Env&, double f) { return f; }, "identical")
+                          .expect("make an identical function for double types");
+    REQUIRE_EQ(e.call(id_double, 2.5).value().as<Value::Type::Float>().value(), doctest::Approx(2.5));
+
     Value nothing = e.make<Value::Type::Function>(
                          +[](Env&) {}, "nothing")
                         .expect("nothing");

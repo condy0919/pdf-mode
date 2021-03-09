@@ -1251,6 +1251,7 @@ private:
         [](auto&, Expected<Value, Error> ex) -> Expected<Value, Error> { return ex; },
         [](auto& e, bool b) -> Expected<Value, Error> { return e.intern(b ? "t" : "nil"); },
         [](auto& e, void* p) -> Expected<Value, Error> { return e.template make<Value::Type::UserPtr>(p); },
+        [](auto& e, float x) -> Expected<Value, Error> { return e.template make<Value::Type::Float>(x); },
         [](auto& e, double x) -> Expected<Value, Error> { return e.template make<Value::Type::Float>(x); },
         [](auto& e, const char* s) -> Expected<Value, Error> { return e.template make<Value::Type::String>(s); },
         [](auto& e, const std::string& s) -> Expected<Value, Error> { return e.template make<Value::Type::String>(s); },
@@ -1268,18 +1269,18 @@ private:
     // - `std::chrono::nanoseconds` from `Value::Type::Time`
     // - `std::string` from `Value::Type::String`
     // - `double`, `float` and other floating point types from `Value::Type::Float`
-    // - `T*` from `Value::Type::UserPtr`
+    // - `void*` from `Value::Type::UserPtr`
     // - `bool` by checking `is_not_nil` of `emacs_value`
     // - `Value` identical to `Value`
     // - integral types from `Value::Type::Int`
     template <typename T>
-    inline static constexpr auto from_lisp = [](Env& e, emacs_value v) {
+    inline static constexpr auto from_lisp = [](Env& e, emacs_value v) -> Expected<T, Error> {
         if constexpr (std::is_same_v<T, std::chrono::nanoseconds>) {
             return Value(v, e).as<Value::Type::Time>();
         } else if constexpr (std::is_same_v<T, std::string>) {
             return Value(v, e).as<Value::Type::String>();
         } else if constexpr (std::is_floating_point_v<T>) {
-            return Value(v, e).as<Value::Type::Float>();
+            return Value(v, e).as<Value::Type::Float>().map([](auto x) { return static_cast<T>(x); });
         } else if constexpr (std::is_pointer_v<T>) {
             return Value(v, e).as<Value::Type::UserPtr>();
         } else if constexpr (std::is_same_v<T, bool>) {
@@ -1287,7 +1288,7 @@ private:
         } else if constexpr (std::is_same_v<T, Value>) {
             return Value(v, e);
         } else if constexpr (std::is_integral_v<T>) {
-            return Value(v, e).as<Value::Type::Int>();
+            return Value(v, e).as<Value::Type::Int>().map([](auto x) { return static_cast<T>(x); });
         } else {
             YAPDF_UNREACHABLE("Handle more types");
         }
