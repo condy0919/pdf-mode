@@ -942,7 +942,7 @@ public:
     ///
     /// # Rationale
     ///
-    /// - For those lambdas that returning `void`, a Elisp `nil` is returned when calling in elisp side
+    /// - For those lambdas that returning `void`, an Elisp `nil` is returned when called in elisp
     /// - The first argument of the lambda must be `Env&` type
     template <Value::Type type, typename... Args>
     Expected<Value, Error> make(Args&&... args) noexcept {
