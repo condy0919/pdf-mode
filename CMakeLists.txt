@@ -41,6 +41,21 @@ set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 target_link_libraries(yapdf PRIVATE Threads::Threads)
 
+# pkg-config integration
+find_package(PkgConfig REQUIRED)
+
+# Gtk3
+pkg_check_modules(GTKMM REQUIRED gtkmm-3.0)
+target_include_directories(yapdf PUBLIC ${GTKMM_INCLUDE_DIRS})
+target_link_directories(yapdf PUBLIC ${GTKMM_LIBRARY_DIRS})
+target_link_libraries(yapdf PUBLIC ${GTKMM_LIBRARIES})
+
+# poppler
+pkg_check_modules(POPPLER REQUIRED poppler-cpp)
+target_include_directories(yapdf PUBLIC ${POPPLER_INCLUDE_DIRS})
+target_link_directories(yapdf PUBLIC ${POPPLER_LIBRARY_DIRS})
+target_link_libraries(yapdf PUBLIC ${POPPLER_LIBRARIES})
+
 # Benchmark
 if(YAPDF_ENABLE_BENCHMARKS)
   enable_testing()
@@ -104,4 +119,4 @@ if(NOT YAPDF_VERSION)
   endif()
 endif()
 
-target_compile_definitions(yapdf PRIVATE YAPDF_VERSION=${YAPDF_VERSION})
+target_compile_definitions(yapdf PRIVATE YAPDF_VERSION="${YAPDF_VERSION}")

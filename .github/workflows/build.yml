@@ -13,6 +13,11 @@ jobs:
         sudo apt update
         sudo apt install emacs27
 
+    - name: Install Gtk & poppler
+      run: |
+        sudo apt install libgtkmm-3.0-dev
+        sudo apt install libpoppler-cpp-dev
+
     - uses: actions/checkout@v2
 
     - name: Build
