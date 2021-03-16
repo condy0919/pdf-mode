@@ -48,7 +48,7 @@
 namespace yapdf {
 namespace internal {
 template <typename T>
-inline T&& return_(T&& x) {
+inline T&& return_(T&& x) noexcept {
     return std::forward<T>(x);
 }
 } // namespace internal
