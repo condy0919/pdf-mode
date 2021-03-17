@@ -1,5 +1,8 @@
 #include "bridge.hpp"
 
+#include <climits>
+#include <limits>
+
 namespace yapdf {
 namespace emacs {
 void GlobalRef::free(Env& env) noexcept {
@@ -24,10 +27,48 @@ Value Value::typeOf() const noexcept {
 }
 
 int Value::type() const noexcept {
-    // Lisp_Object obj = val_->v;
+    // Those values/types defined at emacs/src/lisp.h
+
+    // Number of bits in a Lisp_Object tag
+    constexpr auto GCTYPEBITS = 3;
+
+    // Signed integer type that is wide enough to hold an Emacs value
+    using EmacsIntType =
+#if INTPTR_MAX <= INT_MAX
+        int
+#elif INTPTR_MAX <= LONG_MAX
+        long int
+#elif INTPTR_MAX <= LLONG_MAX
+        long long int
+#else
+#error "INTPTR_MAX too large"
+#endif
+        ;
+
+    // The maximum value that can be stored in a `EmacsIntType`, assuming all bits other than the type bits contribute
+    // to a nonnegative signed value.
+    constexpr auto VAL_MAX = std::numeric_limits<EmacsIntType>::max() >> (GCTYPEBITS - 1);
+
+    // Whether the least-significant bits of an `EmacsIntType` contain the tag.
     //
-    // return XTYPE(obj) // obj & 0b111 where GCTYPEBITS == 3
-    return static_cast<int>(*(std::uintptr_t*)val_ & 0x7);
+    // On hosts where pointers-as-ints do not exceed `VAL_MAX` / 2, `USE_LSB_TAG` is:
+    // 1. unnecessary, because the top bits of an `EmacsIntType` are unused
+    // 2. slower, because it typically requires extra masking
+    //
+    // So, `USE_LSB_TAG` is true only on hosts where it might be useful.
+    constexpr bool USE_LSB_TAG = (VAL_MAX / 2 < INTPTR_MAX);
+
+    // Mask for the value (as opposed to the type bits) of a Lisp object
+    constexpr auto VALMASK = USE_LSB_TAG ? -(1 << GCTYPEBITS) : VAL_MAX;
+
+    // Number of bits in a Lisp_Object value, not counting the tag
+    constexpr auto VALBITS = sizeof(EmacsIntType) * CHAR_BIT - GCTYPEBITS;
+
+    if constexpr (USE_LSB_TAG) {
+        return static_cast<int>(*(EmacsIntType*)val_ & ~VALMASK);
+    } else {
+        return static_cast<int>(static_cast<std::make_unsigned_t<EmacsIntType>>(*(EmacsIntType*)val_) >> VALBITS);
+    }
 }
 
 GlobalRef Value::ref() const noexcept {

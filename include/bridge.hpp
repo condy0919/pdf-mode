@@ -194,7 +194,7 @@ public:
     /// | `Int1`       | 6/3       |
     /// | `Float`      | 7         |
     ///
-    /// On my x86-64 Linux, `Cons` is equal to 3 and `Int1` is equal to 6.
+    /// On my x86-64 Linux where 'USE_LSB_TAG` is true, `Cons` is equal to 3 and `Int1` is equal to 6.
     ///
     /// Maybe `Int1` represent `BigInt` which is supported since Emacs 27?
     [[nodiscard]] int type() const noexcept;
