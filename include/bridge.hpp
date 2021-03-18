@@ -7,11 +7,13 @@
 
 #include <cassert>
 #include <chrono>
+#include <climits>
 #include <cstdarg>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -44,6 +46,45 @@
         }                                                                                                              \
         ret;                                                                                                           \
     })
+
+namespace {
+// Those values/types are defined at emacs/src/lisp.h
+
+// Number of bits in a Lisp_Object tag
+constexpr auto GCTYPEBITS = 3;
+
+// Signed integer type that is wide enough to hold an Emacs value
+using EmacsIntType =
+#if INTPTR_MAX <= INT_MAX
+    int
+#elif INTPTR_MAX <= LONG_MAX
+    long int
+#elif INTPTR_MAX <= LLONG_MAX
+    long long int
+#else
+#error "INTPTR_MAX too large"
+#endif
+    ;
+
+// The maximum value that can be stored in a `EmacsIntType`, assuming all bits other than the type bits contribute to a
+// nonnegative signed value.
+constexpr auto VAL_MAX = std::numeric_limits<EmacsIntType>::max() >> (GCTYPEBITS - 1);
+
+// Whether the least-significant bits of an `EmacsIntType` contain the tag.
+//
+// On hosts where pointers-as-ints do not exceed `VAL_MAX` / 2, `USE_LSB_TAG` is:
+// 1. unnecessary, because the top bits of an `EmacsIntType` are unused
+// 2. slower, because it typically requires extra masking
+//
+// So, `USE_LSB_TAG` is true only on hosts where it might be useful.
+constexpr bool USE_LSB_TAG = (VAL_MAX / 2 < INTPTR_MAX);
+
+// Mask for the value (as opposed to the type bits) of a Lisp object
+constexpr auto VALMASK = USE_LSB_TAG ? -(1 << GCTYPEBITS) : VAL_MAX;
+
+// Number of bits in a Lisp_Object value, not counting the tag
+constexpr auto VALBITS = sizeof(EmacsIntType) * CHAR_BIT - GCTYPEBITS;
+}
 
 namespace yapdf {
 namespace internal {
@@ -155,7 +196,7 @@ public:
         Env& env_;
     };
 
-    /// Types that a Lisp value can be represented
+    /// Types that a Lisp value can be constructed from or cast to.
     enum class Type {
         Int,
         Float,
@@ -164,6 +205,35 @@ public:
         Function,
         ByteString,
         UserPtr,
+    };
+
+    /// Types that a Lisp value can be represented.
+    ///
+    /// `LispType` is used to distinguish the type of a `Value` rather than constructing/casting a `Value`.
+    ///
+    /// | Type         | Int Value                 |
+    /// |--------------|---------------------------|
+    /// | `Symbol`     | 0                         |
+    /// | `Unused`     | 1                         |
+    /// | `Int0`       | 2                         |
+    /// | `Cons`       | 3 if `USE_LSB_TAG` else 6 |
+    /// | `String`     | 4                         |
+    /// | `VectorLike` | 5                         |
+    /// | `Int1`       | 6 if `USE_LSB_TAG` else 3 |
+    /// | `Float`      | 7                         |
+    ///
+    /// Where `Int0` represents an Integer in [-2^20, 2^20] on my machine, `Int1` has no such restrictions.
+    ///
+    /// \see type()
+    enum class LispType {
+        Symbol = 0,
+        Unused = 1,
+        Int0 = 2,
+        Cons = std::conditional_t<USE_LSB_TAG, std::integral_constant<int, 3>, std::integral_constant<int, 6>>::value,
+        String = 4,
+        VectorLike = 5,
+        Int1 = 9 - Cons,
+        Float = 7,
     };
 
     /// Construct a new `Value` from emacs native types
@@ -182,22 +252,7 @@ public:
     /// **Unofficial API**
     ///
     /// It depends on the emacs object internal implementation. Use at your own risk.
-    ///
-    /// | Type         | Int Value |
-    /// |--------------|-----------|
-    /// | `Symbol`     | 0         |
-    /// | `Unused`     | 1         |
-    /// | `Int0`       | 2         |
-    /// | `Cons`       | 3/6       |
-    /// | `String`     | 4         |
-    /// | `VectorLike` | 5         |
-    /// | `Int1`       | 6/3       |
-    /// | `Float`      | 7         |
-    ///
-    /// On my x86-64 Linux where 'USE_LSB_TAG` is true, `Cons` is equal to 3 and `Int1` is equal to 6.
-    ///
-    /// Maybe `Int1` represent `BigInt` which is supported since Emacs 27?
-    [[nodiscard]] int type() const noexcept;
+    [[nodiscard]] LispType type() const noexcept;
 
     /// Create a new `GlobalRef` for this Value.
     [[nodiscard]] GlobalRef ref() const noexcept;

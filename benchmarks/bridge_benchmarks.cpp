@@ -19,7 +19,7 @@ static void BM_type(benchmark::State& state) {
 
     auto val = e.make<Value::Type::String>("Hello").value();
     for (auto _ : state) {
-        const bool result = (val.type() == 4);
+        const bool result = (val.type() == Value::LispType::String);
         benchmark::DoNotOptimize(result);
     }
 }

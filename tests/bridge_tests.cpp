@@ -359,31 +359,41 @@ TEST_CASE("TypeOf") {
 
     SUBCASE("Symbol") {
         auto val = e.intern("foo").value();
-        REQUIRE_EQ(val.type(), 0);
+        REQUIRE_EQ(val.type(), Value::LispType::Symbol);
         REQUIRE_EQ(val.typeOf(), e.intern("symbol").value());
     }
 
     SUBCASE("Integer") {
         auto val = e.make<Value::Type::Int>(42).value();
-        REQUIRE_EQ(val.type(), 2);
+        REQUIRE_EQ(val.type(), Value::LispType::Int0);
         REQUIRE_EQ(val.typeOf(), e.intern("integer").value());
+
+        auto upb = e.make<Value::Type::Int>(4294967295U).value();
+        REQUIRE_EQ(upb.type(), Value::LispType::Int1);
+        REQUIRE_EQ(upb.typeOf(), e.intern("integer").value());
+    }
+
+    SUBCASE("Cons") {
+        auto val = e.list(1).value();
+        REQUIRE_EQ(val.type(), Value::LispType::Cons);
+        REQUIRE_EQ(val.typeOf(), e.intern("cons").value());
     }
 
     SUBCASE("String") {
         auto val = e.make<Value::Type::String>("foo").value();
-        REQUIRE_EQ(val.type(), 4);
+        REQUIRE_EQ(val.type(), Value::LispType::String);
         REQUIRE_EQ(val.typeOf(), e.intern("string").value());
     }
 
     SUBCASE("VectorLike") {
         auto val = e.call("vector", 1, 2).value();
-        REQUIRE_EQ(val.type(), 5);
+        REQUIRE_EQ(val.type(), Value::LispType::VectorLike);
         REQUIRE_EQ(val.typeOf(), e.intern("vector").value());
     }
 
     SUBCASE("Float") {
         auto val = e.make<Value::Type::Float>(3.14).value();
-        REQUIRE_EQ(val.type(), 7);
+        REQUIRE_EQ(val.type(), Value::LispType::Float);
         REQUIRE_EQ(val.typeOf(), e.intern("float").value());
     }
 }
