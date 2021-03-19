@@ -229,10 +229,10 @@ public:
         Symbol = 0,
         Unused = 1,
         Int0 = 2,
-        Cons = std::conditional_t<USE_LSB_TAG, std::integral_constant<int, 3>, std::integral_constant<int, 6>>::value,
+        Cons = USE_LSB_TAG ? 3 : 6,
         String = 4,
         VectorLike = 5,
-        Int1 = 9 - Cons,
+        Int1 = USE_LSB_TAG ? 6 : 3,
         Float = 7,
     };
 
