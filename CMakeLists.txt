@@ -7,9 +7,9 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 project(yapdf
   VERSION 0.1.0
-  LANGUAGES C CXX
-  DESCRIPTION ""
-  HOMEPAGE_URL ""
+  LANGUAGES CXX
+  DESCRIPTION "Yet another pdf-mode for Emacs"
+  HOMEPAGE_URL "https://github.com/condy0919/pdf-mode"
 )
 
 option(YAPDF_ENABLE_TESTS "Enable tests" ON)
