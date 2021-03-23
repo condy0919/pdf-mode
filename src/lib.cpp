@@ -1,4 +1,5 @@
 #include "bridge.hpp"
+#include "pdf.hpp"
 
 // It indicates that it's released under the GPL or compatible license.
 int plugin_is_GPL_compatible;
@@ -32,21 +33,15 @@ int emacs_module_init(struct emacs_runtime* runtime) EMACS_NOEXCEPT {
                           .expect("Create a function that throws exception");
     e.defalias("foo-fun", foo).expect("defalias foo to foo-fun");
 
+    const Value pdf_new_fn = e.make<Value::Type::Function>(&yapdf::pdf_new, "").expect("pdf-new");
+    e.defalias("pdf-new", pdf_new_fn).expect("defalias pdf-new");
+
+    // Provide `pdf-module' to Emacs
+    e.provide("pdf-module").expect("init pdf-module");
+
     return 0;
 }
 
-// // Very rudimentary binding example, for now.
-// // You can test all of this with a one-liner:
-// // emacs -l ./libdymod.so -f dymod-sample-nullary-void-fn --eval='(message
-// "computed %d" (dymod-sample-unary-int-fn 8))'
-// // it will print "Hello Elisp" twice on the console
-// // "Foo" and "Bar" also (for the class instances)
-// // and "computed 16" in the echo area
-//
-// // Our API
-// void nullary_void_fn() { std::cout << "Hello Elisp\n"; }
-// int  unary_int_fn(int i) { return 2*i; }
-//
 // struct SomeClass {
 //     SomeClass(std::string d) : data_(std::move(d)) {}
 //     ~SomeClass() { std::cout << data_ << " destroyed\n"; }
@@ -56,12 +51,6 @@ int emacs_module_init(struct emacs_runtime* runtime) EMACS_NOEXCEPT {
 // };
 //
 // int emacs_module_init(struct emacs_runtime *ert) {
-//
-//     // now a member function
-//     // This is similar to the other functions but we need to get the "this"
-//     pointer
-//     // back so we know which object it applies to
-//
 //     auto foo = new SomeClass("Foo");
 //     auto foo_value = eenv->make_user_ptr(eenv,
 //                                          [](void *p){ delete
