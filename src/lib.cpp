@@ -1,6 +1,8 @@
 #include "bridge.hpp"
 #include "pdf.hpp"
 
+#include <gtkmm.h>
+
 // It indicates that it's released under the GPL or compatible license.
 int plugin_is_GPL_compatible;
 
@@ -23,6 +25,9 @@ int emacs_module_init(struct emacs_runtime* runtime) EMACS_NOEXCEPT {
     if (static_cast<std::size_t>(env->size) < sizeof(*env)) {
         return 2;
     }
+
+    // Initialize GTK
+    Gtk::Main::init_gtkmm_internals();
 
     using namespace yapdf::emacs;
 
