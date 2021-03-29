@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -46,6 +47,22 @@
         }                                                                                                              \
         ret;                                                                                                           \
     })
+
+// Check that __COUNTER__ is defined and that __COUNTER__ increases by 1 every time it is expanded. X + 1 == X + 0 is
+// used in case X is defined to be empty. If X is empty the expression becomes (+1 == +0).
+#if defined(__COUNTER__) && (__COUNTER__ + 1 == __COUNTER__ + 0)
+#define YAPDF_EMACS_PRIVATE_UNIQUE_ID __COUNTER__
+#else
+#define YAPDF_EMACS_PRIVATE_UNIQUE_ID __LINE__
+#endif
+
+#define YAPDF_EMACS_PRIVATE_NAME(n) YAPDF_EMACS_PRIVATE_CONCAT(_yapdf_emacs_, YAPDF_EMACS_PRIVATE_UNIQUE_ID, n)
+#define YAPDF_EMACS_PRIVATE_CONCAT(a, b, c) YAPDF_EMACS_PRIVATE_CONCAT2(a, b, c)
+#define YAPDF_EMACS_PRIVATE_CONCAT2(a, b, c) a##b##c
+
+// #define YAPDF_EMACS_DEFUN(n) \
+//     YAPDF_EMACS_PRIVATE_DECLARE(n) = \
+//         (::yapdf::emacs::internal
 
 namespace {
 // Those values/types are defined at emacs/src/lisp.h
@@ -111,6 +128,123 @@ template <typename T>
 inline T&& operator,(T&& x, Void) noexcept {
     return std::forward<T>(x);
 }
+
+/// \defgroup Elisp Register
+/// \{
+///
+/// The base class for defining elisp functions.
+///
+/// \see DefunRawFunction
+/// \see DefunWrappedFunction
+/// \see DefunUniversalFunction
+class Defun {
+public:
+    virtual void def(Env&) noexcept = 0;
+
+protected:
+    Defun(const char* name, const char* docstring) noexcept : name_(name), docstring_(docstring) {}
+
+    const char* name_;
+    const char* docstring_;
+};
+
+/// Class for defining elisp functions in raw form.
+///
+/// ``` cpp
+/// emacs_value (*)(emacs_env*, std::ptrdiff_t, emacs_value*, void*) EMACS_NOEXCEPT;
+/// ```
+///
+/// When using `DefunRawFunction`, the extra `void*` parameter is `nullptr`. Use `Env::make<Value::Type::Function>()`
+/// directly if you want to customize the extra `void*` parameter.
+class DefunRawFunction : public Defun {
+public:
+    DefunRawFunction(std::ptrdiff_t min_arity, std::ptrdiff_t max_arity, EmacsFunction f, const char* name,
+                     const char* docstring) noexcept
+        : Defun(name, docstring), min_arity_(min_arity), max_arity_(max_arity),f_(f) {}
+
+    void def(Env&) noexcept override;
+
+private:
+    std::ptrdiff_t min_arity_;
+    std::ptrdiff_t max_arity_;
+    EmacsFunction f_;
+};
+
+/// Class for defining elisp functions in wrapped form.
+///
+/// ``` cpp
+/// Expected<Value, Error> (*)(Env&, Value[], std::size_t);
+/// ```
+class DefunWrappedFunction : public Defun {
+public:
+    DefunWrappedFunction(std::ptrdiff_t min_arity, std::ptrdiff_t max_arity,
+                         Expected<Value, Error> (*f)(Env&, Value[], std::size_t), const char* name,
+                         const char* docstring) noexcept
+        : Defun(name, docstring), min_arity_(min_arity), max_arity_(max_arity), f_(f) {}
+
+    void def(Env&) noexcept override;
+
+private:
+    std::ptrdiff_t min_arity_;
+    std::ptrdiff_t max_arity_;
+    Expected<Value, Error> (*f_)(Env&, Value[], std::size_t);
+};
+
+/// Class for defining elisp functions in universal form.
+///
+/// ``` cpp
+/// R (*)(Env&, Args...);
+/// ```
+template <typename R, typename... Args>
+class DefunUniversalFunction : public Defun {
+public:
+    DefunUniversalFunction(R (*f)(Env&, Args...), const char* name, const char* docstring) noexcept
+        : Defun(name, docstring), f_(f) {}
+
+    void def(Env&) noexcept override;
+
+private:
+    R (*f_)(Env&, Args...);
+};
+
+template <typename R, typename... Args>
+DefunUniversalFunction(R (*)(Env&, Args...), const char*, const char*) -> DefunUniversalFunction<R, Args...>;
+
+/// Class for managing registered elisp functions.
+class DefunRegistry {
+public:
+    static DefunRegistry& getInstance() noexcept;
+
+    static Defun* registra(Defun* defun) noexcept;
+
+    void add(std::unique_ptr<Defun> defun);
+
+    void clear() noexcept;
+
+    void def(Env&) noexcept;
+
+private:
+    DefunRegistry() noexcept = default;
+
+    std::vector<std::unique_ptr<Defun>> defuns_;
+};
+
+inline static Defun* defsubr(std::ptrdiff_t min_arity, std::ptrdiff_t max_arity, EmacsFunction f, const char* name,
+                             const char* docstring) {
+    return new DefunRawFunction(min_arity, max_arity, f, name, docstring);
+}
+
+inline static Defun* defsubr(std::ptrdiff_t min_arity, std::ptrdiff_t max_arity,
+                             Expected<Value, Error> (*f)(Env&, Value[], std::size_t), const char* name,
+                             const char* docstring) {
+    return new DefunWrappedFunction(min_arity, max_arity, f, name, docstring);
+}
+
+template <typename R, typename... Args>
+inline static Defun* defsubr(R (*f)(Env&, Args...), const char* name, const char* docstring) {
+    return new DefunUniversalFunction(f, name, docstring);
+}
+/// \}
 
 /// Global reference
 ///
@@ -1351,6 +1485,12 @@ private:
 
     emacs_env* env_;
 };
+
+template <typename R, typename... Args>
+inline void DefunUniversalFunction<R, Args...>::def(Env& e) noexcept {
+    const Value fn = e.make<Value::Type::Function>(f_, docstring_).expect(name_);
+    e.defalias(name_, fn).expect(name_);
+}
 
 inline Expected<std::intmax_t, Error> Value::as(std::integral_constant<Value::Type, Value::Type::Int>) const noexcept {
     const std::intmax_t val = YAPDF_EMACS_APPLY_CHECK(env_, extract_integer, val_);

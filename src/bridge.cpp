@@ -2,6 +2,41 @@
 
 namespace yapdf {
 namespace emacs {
+void DefunRawFunction::def(Env& e) noexcept {
+    const Value fn = e.make<Value::Type::Function>(min_arity_, max_arity_, f_, docstring_, nullptr).expect(name_);
+    e.defalias(name_, fn).expect(name_);
+}
+
+void DefunWrappedFunction::def(Env& e) noexcept {
+    const Value fn = e.make<Value::Type::Function>(min_arity_, max_arity_, f_, docstring_).expect(name_);
+    e.defalias(name_, fn).expect(name_);
+}
+
+DefunRegistry& DefunRegistry::getInstance() noexcept {
+    static DefunRegistry instance;
+    return instance;
+}
+
+Defun* DefunRegistry::registra(Defun* defun) noexcept {
+    std::unique_ptr<Defun> p(defun);
+    getInstance().add(std::move(p));
+    return defun;
+}
+
+void DefunRegistry::add(std::unique_ptr<Defun> defun) {
+    defuns_.push_back(std::move(defun));
+}
+
+void DefunRegistry::clear() noexcept {
+    defuns_.clear();
+}
+
+void DefunRegistry::def(Env& e) noexcept {
+    for (auto& p : defuns_) {
+        p->def(e);
+    }
+}
+
 void GlobalRef::free(Env& env) noexcept {
     YAPDF_EMACS_APPLY(env, free_global_ref, val_);
 }
