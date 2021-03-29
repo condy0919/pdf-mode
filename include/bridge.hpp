@@ -106,7 +106,7 @@ enum class FuncallExit;
 /// We manually typedef `EmacsFunction` for compatibilities.
 using EmacsFunction = emacs_value (*)(emacs_env*, std::ptrdiff_t, emacs_value*, void*) EMACS_NOEXCEPT;
 
-// HACK: Trick to allow `YAPDF_EMACS_APPLY_CHECK` to handle emacs module functions that return void
+// HACK: Trick to allow `YAPDF_EMACS_APPLY_CHECK` to handle Emacs module functions that return void
 template <typename T>
 inline T&& operator,(T&& x, Void) noexcept {
     return std::forward<T>(x);
@@ -127,7 +127,7 @@ class GlobalRef {
     friend class Value;
 
 public:
-    /// Construct `GlobalRef` in a uninitialized state.
+    /// Construct `GlobalRef` in an uninitialized state.
     ///
     /// Use of such state `GlobalRef` is UB.
     GlobalRef() noexcept = default;
@@ -236,7 +236,7 @@ public:
         Float = 7,
     };
 
-    /// Construct a new `Value` from emacs native types
+    /// Construct a new `Value` from Emacs native types
     Value(emacs_value val, Env& env) noexcept : val_(val), env_(env) {}
 
     /// Return the native handle of `emacs_value`
@@ -251,7 +251,7 @@ public:
     ///
     /// **Unofficial API**
     ///
-    /// It depends on the emacs object internal implementation. Use at your own risk.
+    /// It depends on the Emacs object internal implementation. Use at your own risk.
     [[nodiscard]] LispType type() const noexcept;
 
     /// Create a new `GlobalRef` for this Value.
@@ -1276,7 +1276,7 @@ private:
             docstring, reinterpret_cast<void*>(f));
     }
 
-    /// Signal an error to emacs.
+    /// Signal an error to Emacs.
     ///
     /// Avoid to call C++ functions since exceptions are inhibited in FFI boundary.
     static void signal(emacs_env* env, const char* sym, const char* what) noexcept {
