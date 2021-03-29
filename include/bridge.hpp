@@ -48,8 +48,9 @@
         ret;                                                                                                           \
     })
 
-// Check that __COUNTER__ is defined and that __COUNTER__ increases by 1 every time it is expanded. X + 1 == X + 0 is
-// used in case X is defined to be empty. If X is empty the expression becomes (+1 == +0).
+// Check that __COUNTER__ is defined and that __COUNTER__ increases by 1 every time it is expanded.
+//
+// X + 1 == X + 0 is used in case X is defined to be empty. If X is empty the expression becomes (+1 == +0).
 #if defined(__COUNTER__) && (__COUNTER__ + 1 == __COUNTER__ + 0)
 #define YAPDF_EMACS_PRIVATE_UNIQUE_ID __COUNTER__
 #else
@@ -59,10 +60,41 @@
 #define YAPDF_EMACS_PRIVATE_NAME(n) YAPDF_EMACS_PRIVATE_CONCAT(_yapdf_emacs_, YAPDF_EMACS_PRIVATE_UNIQUE_ID, n)
 #define YAPDF_EMACS_PRIVATE_CONCAT(a, b, c) YAPDF_EMACS_PRIVATE_CONCAT2(a, b, c)
 #define YAPDF_EMACS_PRIVATE_CONCAT2(a, b, c) a##b##c
+#define YAPDF_EMACS_PRIVATE_DECLARE(n) static ::yapdf::emacs::Defun* YAPDF_EMACS_PRIVATE_NAME(n) [[maybe_unused]]
 
-// #define YAPDF_EMACS_DEFUN(n) \
-//     YAPDF_EMACS_PRIVATE_DECLARE(n) = \
-//         (::yapdf::emacs::internal
+/// `YAPDF_EMACS_DEFUN` is used to provide elisp function register.
+///
+/// Currently three DEFUN forms are allowed.
+///
+/// ``` cpp
+/// // form 1
+/// static void foo1(Env&, void* p) {
+///     const char* s = (const char*)p;
+///     std::printf("%s\n", s);
+/// }
+/// YAPDF_EMACS_DEFUN(foo1, "foo1", "The foo1 function defined at C++.");
+///
+/// // form 2
+/// static Expected<Value, Error> foo2(Env& e, Value args[], std::size_t n) {
+///     return e.intern("nil");
+/// }
+/// YAPDF_EMACS_DEFUN(foo2, 1, 1, "foo2", "foo2 does nothing.");
+///
+/// // form 3
+/// static emacs_value foo3(emacs_env* env, std::ptrdiff_t, emacs_value args[], void*) EMACS_NOEXCEPT {
+///     emacs_value arg = args[1];
+///
+///     return env->is_not_nil(env, arg) ? env->intern(env, "t") : env->intern(env, "nil");
+/// }
+/// YAPDF_EMACS_DEFUN(foo3, 1, 1, "foo3", "foo3 checks whether  the second value is nil");
+/// ```
+///
+/// \see defsubr
+/// \see DefunRawFunction
+/// \see DefunWrappedFunction
+/// \see DefunUniversalFunction
+#define YAPDF_EMACS_DEFUN(...)                                                                                         \
+    YAPDF_EMACS_PRIVATE_DECLARE(n) = ::yapdf::emacs::DefunRegistry::registra(::yapdf::emacs::defsubr(__VA_ARGS__));
 
 namespace {
 // Those values/types are defined at emacs/src/lisp.h
@@ -101,7 +133,7 @@ constexpr auto VALMASK = USE_LSB_TAG ? -(1 << GCTYPEBITS) : VAL_MAX;
 
 // Number of bits in a Lisp_Object value, not counting the tag
 constexpr auto VALBITS = sizeof(EmacsIntType) * CHAR_BIT - GCTYPEBITS;
-}
+} // namespace
 
 namespace yapdf {
 namespace internal {
@@ -158,9 +190,9 @@ protected:
 /// directly if you want to customize the extra `void*` parameter.
 class DefunRawFunction : public Defun {
 public:
-    DefunRawFunction(std::ptrdiff_t min_arity, std::ptrdiff_t max_arity, EmacsFunction f, const char* name,
+    DefunRawFunction(EmacsFunction f, std::ptrdiff_t min_arity, std::ptrdiff_t max_arity, const char* name,
                      const char* docstring) noexcept
-        : Defun(name, docstring), min_arity_(min_arity), max_arity_(max_arity),f_(f) {}
+        : Defun(name, docstring), min_arity_(min_arity), max_arity_(max_arity), f_(f) {}
 
     void def(Env&) noexcept override;
 
@@ -177,9 +209,8 @@ private:
 /// ```
 class DefunWrappedFunction : public Defun {
 public:
-    DefunWrappedFunction(std::ptrdiff_t min_arity, std::ptrdiff_t max_arity,
-                         Expected<Value, Error> (*f)(Env&, Value[], std::size_t), const char* name,
-                         const char* docstring) noexcept
+    DefunWrappedFunction(Expected<Value, Error> (*f)(Env&, Value[], std::size_t), std::ptrdiff_t min_arity,
+                         std::ptrdiff_t max_arity, const char* name, const char* docstring) noexcept
         : Defun(name, docstring), min_arity_(min_arity), max_arity_(max_arity), f_(f) {}
 
     void def(Env&) noexcept override;
@@ -229,15 +260,14 @@ private:
     std::vector<std::unique_ptr<Defun>> defuns_;
 };
 
-inline static Defun* defsubr(std::ptrdiff_t min_arity, std::ptrdiff_t max_arity, EmacsFunction f, const char* name,
+inline static Defun* defsubr(EmacsFunction f, std::ptrdiff_t min_arity, std::ptrdiff_t max_arity, const char* name,
                              const char* docstring) {
-    return new DefunRawFunction(min_arity, max_arity, f, name, docstring);
+    return new DefunRawFunction(f, min_arity, max_arity, name, docstring);
 }
 
-inline static Defun* defsubr(std::ptrdiff_t min_arity, std::ptrdiff_t max_arity,
-                             Expected<Value, Error> (*f)(Env&, Value[], std::size_t), const char* name,
-                             const char* docstring) {
-    return new DefunWrappedFunction(min_arity, max_arity, f, name, docstring);
+inline static Defun* defsubr(Expected<Value, Error> (*f)(Env&, Value[], std::size_t), std::ptrdiff_t min_arity,
+                             std::ptrdiff_t max_arity, const char* name, const char* docstring) {
+    return new DefunWrappedFunction(f, min_arity, max_arity, name, docstring);
 }
 
 template <typename R, typename... Args>
