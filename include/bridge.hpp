@@ -173,6 +173,8 @@ class Defun {
 public:
     virtual void def(Env&) noexcept = 0;
 
+    virtual ~Defun() = default;
+
 protected:
     Defun(const char* name, const char* docstring) noexcept : name_(name), docstring_(docstring) {}
 
