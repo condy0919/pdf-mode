@@ -34,7 +34,7 @@ int emacs_module_init(struct emacs_runtime* runtime) EMACS_NOEXCEPT {
     yapdf::emacs::DefunRegistry::getInstance().def(e);
 
     // Provide `pdf-module' to Emacs
-    e.provide("pdf-module").expect("init pdf-module");
+    e.provide("yapdf-module").expect("init yapdf-module");
 
     return 0;
 }
