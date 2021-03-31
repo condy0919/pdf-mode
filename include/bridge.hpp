@@ -100,7 +100,7 @@ namespace {
 // Those values/types are defined at emacs/src/lisp.h
 
 // Number of bits in a Lisp_Object tag
-constexpr auto GCTYPEBITS = 3;
+inline constexpr auto GCTYPEBITS = 3;
 
 // Signed integer type that is wide enough to hold an Emacs value
 using EmacsIntType =
@@ -117,7 +117,7 @@ using EmacsIntType =
 
 // The maximum value that can be stored in a `EmacsIntType`, assuming all bits other than the type bits contribute to a
 // nonnegative signed value.
-constexpr auto VAL_MAX = std::numeric_limits<EmacsIntType>::max() >> (GCTYPEBITS - 1);
+inline constexpr auto VAL_MAX = std::numeric_limits<EmacsIntType>::max() >> (GCTYPEBITS - 1);
 
 // Whether the least-significant bits of an `EmacsIntType` contain the tag.
 //
@@ -126,13 +126,13 @@ constexpr auto VAL_MAX = std::numeric_limits<EmacsIntType>::max() >> (GCTYPEBITS
 // 2. slower, because it typically requires extra masking
 //
 // So, `USE_LSB_TAG` is true only on hosts where it might be useful.
-constexpr bool USE_LSB_TAG = (VAL_MAX / 2 < INTPTR_MAX);
+inline constexpr bool USE_LSB_TAG = (VAL_MAX / 2 < INTPTR_MAX);
 
 // Mask for the value (as opposed to the type bits) of a Lisp object
-constexpr auto VALMASK = USE_LSB_TAG ? -(1 << GCTYPEBITS) : VAL_MAX;
+inline constexpr auto VALMASK = USE_LSB_TAG ? -(1 << GCTYPEBITS) : VAL_MAX;
 
 // Number of bits in a Lisp_Object value, not counting the tag
-constexpr auto VALBITS = sizeof(EmacsIntType) * CHAR_BIT - GCTYPEBITS;
+inline constexpr auto VALBITS = sizeof(EmacsIntType) * CHAR_BIT - GCTYPEBITS;
 } // namespace
 
 namespace yapdf {
