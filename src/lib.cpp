@@ -1,5 +1,4 @@
 #include "bridge.hpp"
-#include "pdf.hpp"
 
 #include <gtkmm.h>
 
@@ -32,6 +31,7 @@ int emacs_module_init(struct emacs_runtime* runtime) EMACS_NOEXCEPT {
     // Initialize yapdf
     yapdf::emacs::Env e(env);
     yapdf::emacs::DefunRegistry::getInstance().def(e);
+    yapdf::emacs::DefunRegistry::getInstance().clear();
 
     // Provide `pdf-module' to Emacs
     e.provide("yapdf-module").expect("init yapdf-module");
