@@ -262,18 +262,19 @@ private:
     std::vector<std::unique_ptr<Defun>> defuns_;
 };
 
-inline static Defun* defsubr(EmacsFunction f, std::ptrdiff_t min_arity, std::ptrdiff_t max_arity, const char* name,
-                             const char* docstring) {
+[[maybe_unused]] inline static Defun* defsubr(EmacsFunction f, std::ptrdiff_t min_arity, std::ptrdiff_t max_arity,
+                                              const char* name, const char* docstring) {
     return new DefunRawFunction(f, min_arity, max_arity, name, docstring);
 }
 
-inline static Defun* defsubr(Expected<Value, Error> (*f)(Env&, Value[], std::size_t), std::ptrdiff_t min_arity,
-                             std::ptrdiff_t max_arity, const char* name, const char* docstring) {
+[[maybe_unused]] inline static Defun* defsubr(Expected<Value, Error> (*f)(Env&, Value[], std::size_t),
+                                              std::ptrdiff_t min_arity, std::ptrdiff_t max_arity, const char* name,
+                                              const char* docstring) {
     return new DefunWrappedFunction(f, min_arity, max_arity, name, docstring);
 }
 
 template <typename R, typename... Args>
-inline static Defun* defsubr(R (*f)(Env&, Args...), const char* name, const char* docstring) {
+[[maybe_unused]] inline static Defun* defsubr(R (*f)(Env&, Args...), const char* name, const char* docstring) {
     return new DefunUniversalFunction(f, name, docstring);
 }
 /// \}
