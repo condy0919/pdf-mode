@@ -5,7 +5,7 @@ project(yapdf-benchmarks)
 add_library(bridge_benchmarks SHARED
   bridge_benchmarks.cpp
 )
-target_link_libraries(bridge_benchmarks LINK_PRIVATE
+target_link_libraries(bridge_benchmarks PRIVATE
   benchmark::benchmark
   yapdf::yapdf
 )

@@ -5,7 +5,7 @@ project(yapdf-tests)
 add_library(bridge_tests SHARED
   bridge_tests.cpp
 )
-target_link_libraries(bridge_tests LINK_PRIVATE
+target_link_libraries(bridge_tests PRIVATE
   doctest::doctest
   yapdf::yapdf
 )
@@ -16,7 +16,7 @@ add_test(NAME BridgeTests
 add_executable(expected_tests
   expected_tests.cpp
 )
-target_link_libraries(expected_tests LINK_PRIVATE
+target_link_libraries(expected_tests PRIVATE
   doctest_with_main
   yapdf::yapdf
 )
