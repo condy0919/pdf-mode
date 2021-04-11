@@ -1,4 +1,6 @@
-#include "pdf.hpp"
+#include "bridge.hpp"
+
+#include <gtkmm.h>
 
 #include <stdexcept>
 

@@ -103,9 +103,9 @@ install(TARGETS yapdf LIBRARY DESTINATION lib RUNTIME DESTINATION bin)
 target_sources(yapdf
   PRIVATE
     src/lib.cpp
-    src/pdf.cpp
     src/bridge.cpp
     src/unreachable.cpp
+    src/viewer.cpp
 )
 
 ### Obtain version information from Git
