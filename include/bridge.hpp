@@ -15,6 +15,7 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <new>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -626,7 +627,7 @@ enum class FuncallExit {
     Return = 0,
     /// Function has signaled an error using `signal`
     Signal = 1,
-    /// Function has exit using `throw`
+    /// Function has exited using `throw`
     Throw = 2,
 };
 
@@ -990,7 +991,7 @@ public:
 
         // one extra byte for '\0'
         const std::size_t sz = n + 1;
-        char* p = (char*)std::malloc(sz);
+        char* p = new (std::nothrow) char[sz];
         if (!p) {
             return -1;
         }
@@ -1007,7 +1008,7 @@ public:
 
         // (message "%s" *p)
         const auto result = call("message", "%s", *p);
-        std::free(p);
+        delete[] p;
 
         return result.hasValue() ? 0 : -1;
     }
@@ -1448,7 +1449,7 @@ private:
     /// Avoid to call C++ functions since exceptions are inhibited in FFI boundary.
     static void signal(emacs_env* env, const char* sym, const char* what) noexcept {
         // It's rare to cause an error during `make_string` and `intern`. `non_local_exit_signal` will tell us the
-        // allocation failures
+        // allocation failures about `make_string` and `intern`.
         emacs_value what_obj = env->make_string(env, what, std::strlen(what));
         emacs_value data = env->funcall(env, env->intern(env, "list"), 1, &what_obj);
         env->non_local_exit_signal(env, env->intern(env, sym), data);
@@ -1506,7 +1507,7 @@ private:
         } else if constexpr (std::is_pointer_v<T>) {
             return Value(v, e).as<Value::Type::UserPtr>();
         } else if constexpr (std::is_same_v<T, bool>) {
-            return bool(Value(v, e));
+            return static_cast<bool>(Value(v, e));
         } else if constexpr (std::is_same_v<T, Value>) {
             return Value(v, e);
         } else if constexpr (std::is_integral_v<T>) {
